@@ -470,26 +470,21 @@ export class BootPackBuilder {
         if (existing) return existing;
 
         const flows = this.store.getAllFlowCards().sort((a, b) => a.summary.localeCompare(b.summary));
-        const entrypoints = ['CLI.index', 'CLI.taskpack', 'Indexer.parse', 'Store.scoredSearch', 'TaskPackBuilder.build'];
-        const architectureBullets = [
-            'P1 (@atlasmemory/core) defines shared cards, refs, anchors, and flow types',
-            'P2 (@atlasmemory/indexer) parses TS/Python and extracts symbols, anchors, imports, and calls',
-            'P3 (@atlasmemory/store) persists files/symbols/cards/flows in SQLite with FTS',
-            'P4 (@atlasmemory/retrieval) runs search with FTS and fallback ranking',
-            'P5 (@atlasmemory/taskpack) builds budgeted context packs for objectives',
-            'P6/P7 expose CLI and MCP operational surfaces',
-            'P8 (@atlasmemory/eval) measures recall, latency, and pack quality'
-        ];
+        const pathAliases = this.buildPathAliases();
+        const symbolAliases = this.buildSymbolAliases();
+
+        // Generate architecture bullets dynamically from actual indexed data
+        const architectureBullets = this.generateArchitectureBullets(pathAliases);
+        const entrypoints = Object.values(symbolAliases);
+
+        // Generate purpose from folder cards or file cards
+        const purpose = this.generateProjectPurpose();
 
         const card = {
             id: 'singleton',
-            purpose: 'AtlasMemory provides local-first repository memory with evidence-backed retrieval and task-focused context packs.',
+            purpose,
             architectureBullets,
-            invariants: [
-                'Every non-trivial claim should map to evidence anchor IDs',
-                'TaskPack assembly remains budget-aware and deterministic',
-                'Coverage guard enforces indexed/discoverable threshold before smoke passes'
-            ],
+            invariants: this.collectInvariants(3).map(inv => inv.text),
             entrypoints,
             keyFlowIds: flows.slice(0, 10).map(flow => flow.id),
             toolsProtocol: [
@@ -497,7 +492,7 @@ export class BootPackBuilder {
                 'use allowed evidence calls before asserting details',
                 'validate and upsert cards through MCP when persisting memory'
             ],
-            glossary: this.buildPathAliases(),
+            glossary: pathAliases,
             cardHash: ''
         };
 
@@ -505,6 +500,57 @@ export class BootPackBuilder {
         const finalCard = { ...card, cardHash };
         this.store.upsertProjectCard(finalCard);
         return finalCard;
+    }
+
+    private generateArchitectureBullets(pathAliases: Record<string, string>): string[] {
+        const bullets: string[] = [];
+        const files = this.store.getFiles();
+
+        for (const [alias, dir] of Object.entries(pathAliases)) {
+            const dirFiles = files.filter(f => {
+                const rel = path.relative(process.cwd(), f.path).replace(/\\/g, '/');
+                return rel.startsWith(dir);
+            });
+
+            if (dirFiles.length === 0) continue;
+
+            // Get top symbols for this directory
+            const topSymbols: string[] = [];
+            for (const file of dirFiles.slice(0, 5)) {
+                const symbols = this.store.getSymbolsForFile(file.id);
+                for (const sym of symbols) {
+                    if (sym.visibility === 'public' && topSymbols.length < 3) {
+                        topSymbols.push(sym.name);
+                    }
+                }
+            }
+
+            const desc = topSymbols.length > 0
+                ? `${alias} (${dir}) contains ${dirFiles.length} files: ${topSymbols.join(', ')}`
+                : `${alias} (${dir}) contains ${dirFiles.length} files`;
+            bullets.push(desc);
+        }
+
+        return bullets;
+    }
+
+    private generateProjectPurpose(): string {
+        // Try folder cards first
+        try {
+            const folderCards = this.store.db.prepare('SELECT folder_path, card_level0 FROM folder_cards LIMIT 3').all() as any[];
+            if (folderCards.length > 0) {
+                const purposes = folderCards
+                    .map(fc => { try { return JSON.parse(fc.card_level0).purpose; } catch { return ''; } })
+                    .filter(Boolean);
+                if (purposes.length > 0) return purposes[0];
+            }
+        } catch { }
+
+        // Fallback: count stats
+        const files = this.store.getFiles();
+        const symbols = this.store.db.prepare('SELECT COUNT(*) as n FROM symbols').get() as { n: number };
+        const langs = new Set(files.map(f => path.extname(f.path).slice(1)).filter(Boolean));
+        return `Project with ${files.length} files, ${symbols.n} symbols (${Array.from(langs).join(', ')})`;
     }
 
     private collectInvariants(limit: number): Array<{ text: string; evidenceIds: string[]; fileId: string }> {
@@ -525,28 +571,43 @@ export class BootPackBuilder {
     }
 
     private buildPathAliases(): Record<string, string> {
-        const preferred = [
-            'packages/core/src',
-            'packages/indexer/src',
-            'packages/store/src',
-            'packages/retrieval/src',
-            'packages/taskpack/src',
-            'apps/cli/src',
-            'apps/mcp-server/src',
-            'apps/eval/src'
-        ];
+        // Dynamically discover top directories from indexed files
+        const files = this.store.getFiles();
+        const dirCounts = new Map<string, number>();
+        for (const file of files) {
+            const rel = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
+            const parts = rel.split('/');
+            // Use top 2 levels as directory key (e.g., "src/components" or "packages/store/src")
+            const dir = parts.length > 2 ? parts.slice(0, 2).join('/') : (parts.length > 1 ? parts[0] : '.');
+            dirCounts.set(dir, (dirCounts.get(dir) || 0) + 1);
+        }
+        const sortedDirs = Array.from(dirCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8);
+
         const aliases: Record<string, string> = {};
-        preferred.forEach((item, index) => {
-            aliases[`P${index + 1}`] = item;
+        sortedDirs.forEach(([dir], index) => {
+            aliases[`P${index + 1}`] = dir;
         });
         return aliases;
     }
 
     private buildSymbolAliases(): Record<string, string> {
-        const symbols = ['CLI.index', 'CLI.taskpack', 'Indexer.parse', 'Store.scoredSearch', 'TaskPackBuilder.build'];
+        // Dynamically discover top public symbols from indexed data
+        const files = this.store.getFiles();
+        const publicSymbols: string[] = [];
+        for (const file of files) {
+            const symbols = this.store.getSymbolsForFile(file.id);
+            for (const sym of symbols) {
+                if (sym.visibility === 'public' && ['function', 'class'].includes(sym.kind)) {
+                    publicSymbols.push(sym.name);
+                }
+            }
+            if (publicSymbols.length >= 10) break;
+        }
         const aliases: Record<string, string> = {};
-        symbols.forEach((item, index) => {
-            aliases[`S${index + 1}`] = item;
+        publicSymbols.slice(0, 5).forEach((name, index) => {
+            aliases[`S${index + 1}`] = name;
         });
         return aliases;
     }
