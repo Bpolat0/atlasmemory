@@ -13,16 +13,31 @@ const EXCLUDED_DIRS = new Set([
 const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/];
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py']);
 
+export interface AutoIndexOptions {
+    onFile?: (path: string) => void;
+    incremental?: boolean;
+}
+
 export async function autoIndex(
     store: Store,
     rootDir: string,
-    opts?: { onFile?: (path: string) => void }
-): Promise<{ files: number; symbols: number }> {
+    opts?: AutoIndexOptions
+): Promise<{ files: number; symbols: number; skipped: number }> {
     const indexer = new Indexer();
     const generator = new CardGenerator();
     const flowGenerator = new FlowGenerator(store);
     let fileCount = 0;
     let symbolCount = 0;
+    let skipped = 0;
+
+    // Build hash map for incremental indexing
+    const incremental = opts?.incremental !== false;
+    const existingHashes = new Map<string, string>();
+    if (incremental) {
+        for (const file of store.getFiles()) {
+            existingHashes.set(file.path, file.contentHash);
+        }
+    }
 
     async function walk(dir: string) {
         let entries;
@@ -45,10 +60,17 @@ export async function autoIndex(
                 if (!CODE_EXTENSIONS.has(ext)) continue;
                 if (EXCLUDED_PATTERNS.some(p => p.test(entry.name))) continue;
 
-                opts?.onFile?.(fullPath);
-
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+
+                // Skip unchanged files in incremental mode
+                if (incremental && existingHashes.get(fullPath) === contentHash) {
+                    skipped++;
+                    continue;
+                }
+
+                opts?.onFile?.(fullPath);
+
                 const language = ext.startsWith('.ts') ? 'ts' : ext.startsWith('.js') ? 'js' : 'py';
                 const loc = content.split('\n').length;
 
@@ -76,7 +98,7 @@ export async function autoIndex(
 
     await walk(rootDir);
     store.setState('last_index_at', new Date().toISOString());
-    return { files: fileCount, symbols: symbolCount };
+    return { files: fileCount, symbols: symbolCount, skipped };
 }
 
 export function isDbEmpty(store: Store): boolean {

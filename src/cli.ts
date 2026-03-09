@@ -51,8 +51,10 @@ export function registerCliCommands(program: Command): void {
             console.log(`Indexing ${rootDir}...`);
             const result = await autoIndex(store, rootDir, {
                 onFile: (p) => console.log(`  ${path.relative(rootDir, p)}`),
+                incremental: options.incremental,
             });
-            console.log(`Done. ${result.files} files, ${result.symbols} symbols indexed.`);
+            const skipMsg = result.skipped > 0 ? ` (${result.skipped} unchanged, skipped)` : '';
+            console.log(`Done. ${result.files} files, ${result.symbols} symbols indexed.${skipMsg}`);
         });
 
     program.command('search <query>')
