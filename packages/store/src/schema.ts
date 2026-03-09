@@ -134,7 +134,7 @@ export const SCHEMA = `
     FOREIGN KEY(symbol_id) REFERENCES symbols(id) ON DELETE CASCADE
   );
   
-  -- FTS Tables
-  CREATE VIRTUAL TABLE IF NOT EXISTS fts_files USING fts5(path, content, file_id UNINDEXED);
-  CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(name, qualified_name, signature, file_id UNINDEXED);
+  -- FTS Tables (Porter stemmer enables matching "authentication" ↔ "authenticate")
+  CREATE VIRTUAL TABLE IF NOT EXISTS fts_files USING fts5(path, content, file_id UNINDEXED, tokenize='porter unicode61');
+  CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(name, qualified_name, signature, file_id UNINDEXED, tokenize='porter unicode61');
 `;

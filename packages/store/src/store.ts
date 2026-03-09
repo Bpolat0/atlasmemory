@@ -11,7 +11,25 @@ export class Store {
         this.init();
     }
 
+    /** Split camelCase/PascalCase/snake_case identifiers into space-separated terms for FTS indexing */
+    private expandIdentifiers(text: string): string {
+        return text
+            .replace(/([a-z])([A-Z])/g, '$1 $2')   // camelCase → camel Case
+            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2') // XMLParser → XML Parser
+            .replace(/_/g, ' ')                       // snake_case → snake case
+            .replace(/-/g, ' ');                      // kebab-case → kebab case
+    }
+
     private init() {
+        // Migrate old FTS tables to Porter stemmer (drop and let SCHEMA recreate)
+        try {
+            const row = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='fts_files'").get() as { sql: string } | undefined;
+            if (row && !row.sql.includes('porter')) {
+                this.db.exec('DROP TABLE IF EXISTS fts_files');
+                this.db.exec('DROP TABLE IF EXISTS fts_symbols');
+            }
+        } catch (e) { /* fresh DB, no migration needed */ }
+
         this.db.exec(SCHEMA);
         // Migration for Phase 7A
         try {
@@ -118,8 +136,9 @@ export class Store {
         this.db.prepare('DELETE FROM fts_files WHERE file_id = ?').run(fileId);
         this.db.prepare('DELETE FROM fts_symbols WHERE file_id = ?').run(fileId); // Clear symbols too if file updated
 
-        // Insert new
-        this.db.prepare('INSERT INTO fts_files (path, content, file_id) VALUES (?, ?, ?)').run(path, content, fileId);
+        // Insert new — append expanded identifiers so FTS matches individual terms
+        const expandedContent = content + '\n' + this.expandIdentifiers(content);
+        this.db.prepare('INSERT INTO fts_files (path, content, file_id) VALUES (?, ?, ?)').run(path, expandedContent, fileId);
 
         return fileId;
     }
@@ -258,8 +277,11 @@ export class Store {
             symbol.signature, symbol.visibility, symbol.startLine, symbol.endLine, symbol.signatureHash
         );
 
-        // Update FTS Symbol
-        this.db.prepare('INSERT INTO fts_symbols (name, qualified_name, signature, file_id) VALUES (?, ?, ?, ?)').run(symbol.name, symbol.qualifiedName, symbol.signature, symbol.fileId);
+        // Update FTS Symbol — include expanded names for camelCase matching
+        const expandedName = `${symbol.name} ${this.expandIdentifiers(symbol.name)}`;
+        const expandedQualified = `${symbol.qualifiedName} ${this.expandIdentifiers(symbol.qualifiedName)}`;
+        const expandedSig = `${symbol.signature} ${this.expandIdentifiers(symbol.signature)}`;
+        this.db.prepare('INSERT INTO fts_symbols (name, qualified_name, signature, file_id) VALUES (?, ?, ?, ?)').run(expandedName, expandedQualified, expandedSig, symbol.fileId);
     }
 
     getSymbolsForFile(fileId: string): CodeSymbol[] {
@@ -674,53 +696,66 @@ export class Store {
     scoredSearch(query: string, limit: number = 10): { file: any, score: number }[] {
         const scores = new Map<string, number>();
 
-        // 1. FTS Search - Files
-        try {
-            // Sanitize: Wrap in quotes to treat as literal, escape existing quotes
-            const safeQuery = `"${query.replace(/"/g, '""')}"`;
-            const fileMatches = this.db.prepare(`
-                SELECT file_id, rank 
-                FROM fts_files 
-                WHERE fts_files MATCH ? 
-                ORDER BY rank 
-                LIMIT ?
-            `).all(safeQuery, limit * 2) as { file_id: string, rank: number }[];
+        // Extract individual terms for multi-word queries
+        const terms = query
+            .toLowerCase()
+            .replace(/[^a-z0-9\s_]/g, '')
+            .split(/\s+/)
+            .filter(t => t.length >= 2);
 
-            for (const match of fileMatches) {
-                // FTS5 rank is lower = better (more negative). We invert it for positive score.
-                const score = -1 * match.rank * 10;
-                scores.set(match.file_id, (scores.get(match.file_id) || 0) + score);
+        const ftsSearch = (table: string, safeQuery: string, scoreMultiplier: number) => {
+            try {
+                const matches = this.db.prepare(`
+                    SELECT file_id, rank
+                    FROM ${table}
+                    WHERE ${table} MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                `).all(safeQuery, limit * 2) as { file_id: string, rank: number }[];
+
+                for (const match of matches) {
+                    const score = -1 * match.rank * scoreMultiplier;
+                    scores.set(match.file_id, (scores.get(match.file_id) || 0) + score);
+                }
+            } catch (e) { /* ignore FTS syntax errors */ }
+        };
+
+        // 1. FTS Search - try exact phrase first
+        const phraseQuery = `"${query.replace(/"/g, '""')}"`;
+        ftsSearch('fts_files', phraseQuery, 10);
+        ftsSearch('fts_symbols', phraseQuery, 20);
+
+        // 2. FTS Search - individual terms with OR (catches multi-word queries)
+        if (terms.length > 1) {
+            const orQuery = terms
+                .filter(t => t.length >= 3)
+                .map(t => `"${t.replace(/"/g, '')}"`)
+                .join(' OR ');
+            if (orQuery) {
+                ftsSearch('fts_files', orQuery, 6);
+                ftsSearch('fts_symbols', orQuery, 12);
             }
-        } catch (e) {
-            console.error('FTS File Search Error:', e);
-            // Ignore syntax errors in query (e.g. incomplete boolean)
         }
 
-        // 2. FTS Search - Symbols
-        try {
-            const safeQuery = `"${query.replace(/"/g, '""')}"`;
-            const symbolMatches = this.db.prepare(`
-                SELECT file_id, rank 
-                FROM fts_symbols 
-                WHERE fts_symbols MATCH ? 
-                ORDER BY rank 
-                LIMIT ?
-            `).all(safeQuery, limit * 2) as { file_id: string, rank: number }[];
-
-            for (const match of symbolMatches) {
-                const score = -1 * match.rank * 20; // Symbols are weighty
-                scores.set(match.file_id, (scores.get(match.file_id) || 0) + score);
-            }
-        } catch (e) { }
-
-        // 3. Fallback: Path LIKE for short/partial queries that FTS might miss (or exact filenames)
+        // 3. Fallback: Path LIKE for each term
         const queryLower = query.toLowerCase();
-        // Only run LIKE if we have few results or query looks like a filename
         const pathMatches = this.db.prepare('SELECT id, path FROM files WHERE path LIKE ? LIMIT ?').all(`%${query}%`, limit) as { id: string, path: string }[];
-
         for (const file of pathMatches) {
-            // Base score for path match
             scores.set(file.id, (scores.get(file.id) || 0) + 10);
+        }
+
+        // Also try each term individually against paths and symbol names
+        for (const term of terms) {
+            if (term.length < 3) continue;
+            const termPathMatches = this.db.prepare('SELECT id, path FROM files WHERE LOWER(path) LIKE ? LIMIT ?').all(`%${term}%`, limit) as { id: string, path: string }[];
+            for (const file of termPathMatches) {
+                scores.set(file.id, (scores.get(file.id) || 0) + 5);
+            }
+            // Symbol name LIKE — catches partial matches like "login" in "handleLogin"
+            const symbolMatches = this.db.prepare('SELECT DISTINCT file_id FROM symbols WHERE LOWER(name) LIKE ? OR LOWER(qualified_name) LIKE ? LIMIT ?').all(`%${term}%`, `%${term}%`, limit) as { file_id: string }[];
+            for (const match of symbolMatches) {
+                scores.set(match.file_id, (scores.get(match.file_id) || 0) + 15);
+            }
         }
 
         const allIds = Array.from(scores.keys());
@@ -737,6 +772,11 @@ export class Store {
             // Exact filename match (Huge boost)
             if (fileName === queryLower || fileName === queryLower + '.ts') score += 100;
             if (fileName.includes(queryLower)) score += 20;
+
+            // Per-term filename boost
+            for (const term of terms) {
+                if (fileName.includes(term)) score += 8;
+            }
 
             // Recency boost (simple decay)
             const updated = new Date(file.updated_at).getTime();

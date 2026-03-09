@@ -109,12 +109,21 @@ export class SearchService {
         // kebab-case -> kebab case
         text = text.replace(/-/g, ' ');
 
+        const STOPWORDS = new Set([
+            'the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'what', 'how', 'why', 'when', 'where',
+            'fix', 'bug', 'use', 'add', 'remove', 'delete', 'update', 'change', 'modify', 'make', 'create',
+            'explain', 'describe', 'investigate', 'find', 'show', 'get', 'set', 'check', 'look', 'search',
+            'logic', 'code', 'file', 'function', 'method', 'class', 'module', 'component',
+            'can', 'does', 'should', 'would', 'could', 'will', 'has', 'have', 'had', 'was', 'were', 'been',
+            'all', 'any', 'some', 'each', 'every', 'about', 'there', 'here', 'also', 'just', 'only',
+        ]);
+
         return text.toLowerCase()
-            .replace(/_/g, ' ') // Treat underscore as separator
-            .replace(/[^a-z0-9\s]/g, '') // Remove punctuation
+            .replace(/_/g, ' ')
+            .replace(/[^a-z0-9\s]/g, '')
             .split(/\s+/)
-            .filter(w => w.length > 2) // Remove short words
-            .filter(w => !['the', 'and', 'for', 'with', 'fix', 'bug', 'use', 'explain', 'describe', 'investigate', 'find', 'logic'].includes(w)) // Stopwords
+            .filter(w => w.length > 2)
+            .filter(w => !STOPWORDS.has(w))
             .join(' ');
     }
 }
