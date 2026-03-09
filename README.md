@@ -173,7 +173,7 @@ AtlasMemory works with zero configuration. Optional settings:
 ## Development
 
 ```bash
-git clone https://github.com/mehmetaergun/atlasmemory.git
+git clone https://github.com/Bpolat0/atlasmemory.git
 cd atlasmemory
 npm install
 npm run build          # Build all packages
