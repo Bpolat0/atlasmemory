@@ -1,0 +1,27 @@
+# Source & development
+packages/
+apps/
+src/
+scripts/
+docs/
+synth-*
+reports/
+*.ts
+!*.d.ts
+tsconfig*.json
+build.mjs
+.eslintrc*
+.prettier*
+.github/
+.atlas/
+.git/
+.claude*
+*.db
+debug-*
+show-card*
+test-sfm*
+memory.md
+project_handoff.md
+AGENT-SELFTEST-REPORT.md
+node_modules/
+CLAUDE.md

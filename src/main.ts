@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { Command } from 'commander';
 import { startMcpServer } from './mcp-server.js';
 import { registerCliCommands } from './cli.js';

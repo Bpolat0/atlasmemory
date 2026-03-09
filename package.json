@@ -1,26 +1,69 @@
 {
-    "name":  "atlasmemory-monorepo",
-    "private":  true,
-    "workspaces":  [
-                       "packages/*",
-                       "apps/*"
-                   ],
-    "scripts":  {
-                    "build":  "npm --workspaces run build",
-                    "test":  "npm --workspaces --if-present run test",
-                    "eval":  "node apps/eval/dist/src/index.js run-all",
-                    "eval:synth100":  "node apps/eval/dist/src/index.js run --repo apps/eval/synth-100 --out apps/eval/reports --desc \"synth-100\"",
-                    "eval:synth500":  "node apps/eval/dist/src/index.js run --repo apps/eval/synth-500 --out apps/eval/reports --desc \"synth-500\"",
-                    "eval:real":  "node apps/eval/dist/src/index.js run --repo . --out apps/eval/reports --desc \"real-repo-smoke\" --smoke --skipIndex --incremental --db-path .atlas/atlas.db",
-                    "eval:real:heal":  "node apps/eval/dist/src/index.js run --repo . --out apps/eval/reports --desc \"real-repo-smoke-heal\" --smoke --skipIndex --incremental --db-path .atlas/atlas.db --autoHealOnLowCoverage --allowFullIndexFallback",
-                    "selftest:agent":  "node scripts/agent-selftest.mjs"
-                },
-    "devDependencies":  {
-                            "@types/better-sqlite3":  "^7.6.13",
-                            "@types/node":  "^20.19.33",
-                            "eslint":  "^8.0.0",
-                            "prettier":  "^3.0.0",
-                            "typescript":  "^5.0.0"
-                        },
-    "type":  "module"
+    "name": "atlasmemory",
+    "version": "1.0.0",
+    "description": "Proof-backed, drift-resistant AI memory for your codebase",
+    "private": true,
+    "type": "module",
+    "bin": {
+        "atlasmemory": "dist/atlasmemory.js"
+    },
+    "main": "dist/atlasmemory.js",
+    "files": [
+        "dist/atlasmemory.js",
+        "dist/atlasmemory.js.map",
+        "README.md",
+        "LICENSE"
+    ],
+    "workspaces": [
+        "packages/*",
+        "apps/*"
+    ],
+    "scripts": {
+        "build": "npm --workspaces run build",
+        "build:bundle": "node build.mjs",
+        "build:all": "npm run build && npm run build:bundle",
+        "prepublishOnly": "npm run build:all",
+        "test": "npm --workspaces --if-present run test",
+        "eval": "node apps/eval/dist/src/index.js run-all",
+        "eval:synth100": "node apps/eval/dist/src/index.js run --repo apps/eval/synth-100 --out apps/eval/reports --desc \"synth-100\"",
+        "eval:synth500": "node apps/eval/dist/src/index.js run --repo apps/eval/synth-500 --out apps/eval/reports --desc \"synth-500\"",
+        "eval:real": "node apps/eval/dist/src/index.js run --repo . --out apps/eval/reports --desc \"real-repo-smoke\" --smoke --skipIndex --incremental --db-path .atlas/atlas.db",
+        "eval:real:heal": "node apps/eval/dist/src/index.js run --repo . --out apps/eval/reports --desc \"real-repo-smoke-heal\" --smoke --skipIndex --incremental --db-path .atlas/atlas.db --autoHealOnLowCoverage --allowFullIndexFallback",
+        "selftest:agent": "node scripts/agent-selftest.mjs"
+    },
+    "dependencies": {
+        "better-sqlite3": "^9.0.0",
+        "tree-sitter": "^0.20.6",
+        "tree-sitter-typescript": "^0.20.2",
+        "tree-sitter-javascript": "^0.20.1",
+        "tree-sitter-python": "^0.20.4",
+        "@modelcontextprotocol/sdk": "^0.6.0",
+        "commander": "^11.0.0"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/node": "^20.19.33",
+        "esbuild": "^0.27.3",
+        "eslint": "^8.0.0",
+        "prettier": "^3.0.0",
+        "typescript": "^5.0.0"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "keywords": [
+        "ai", "memory", "mcp", "context", "code-intelligence",
+        "tree-sitter", "sqlite", "proof", "drift-detection",
+        "model-context-protocol", "llm", "copilot", "claude"
+    ],
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/mehmetaergun/atlasmemory"
+    },
+    "author": "Mehmet Aergun",
+    "homepage": "https://github.com/mehmetaergun/atlasmemory#readme",
+    "bugs": {
+        "url": "https://github.com/mehmetaergun/atlasmemory/issues"
+    }
 }
