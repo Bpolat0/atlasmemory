@@ -59,7 +59,7 @@ export class FlowGenerator {
                     }
                 ];
                 const hop1Summary = `${source.name} -> ${target.name}`;
-                const hop1Key = `${fileId}:${hop1Summary}`;
+                const hop1Key = `${fileId}:${source.id}:${target.id}`;
 
                 if (!dedup.has(hop1Key)) {
                     flows.push({
@@ -83,11 +83,14 @@ export class FlowGenerator {
                     const secondTarget = this.resolveTarget(secondRef, target.fileId, importedFileIds);
                     if (!secondTarget) continue;
 
+                    // Prevent circular flows (A → B → A)
+                    if (secondTarget.id === source.id) continue;
+
                     const secondFile = this.store.getFileById(secondTarget.fileId);
                     if (!secondFile) continue;
 
                     const hop2Summary = `${source.name} -> ${target.name} -> ${secondTarget.name}`;
-                    const hop2Key = `${fileId}:${hop2Summary}`;
+                    const hop2Key = `${fileId}:${source.id}:${target.id}:${secondTarget.id}`;
                     if (dedup.has(hop2Key)) continue;
 
                     flows.push({

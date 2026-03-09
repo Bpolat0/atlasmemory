@@ -37,8 +37,8 @@ export const PYTHON_QUERIES = `
     name: (identifier) @name
     body: (block) @body) @class
 
-  ; (import_statement (dotted_name) @import_module) @import
-  ; (import_from_statement module: (dotted_name) @import_module) @import
+  (import_statement (dotted_name) @import_module) @import
+  (import_from_statement module_name: (dotted_name) @import_module) @import
 
   (call
     function: (identifier) @call_name) @call

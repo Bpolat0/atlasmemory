@@ -27,13 +27,20 @@ export class Indexer {
         this.queries['py'] = new Parser.Query(Python, PYTHON_QUERIES);
     }
 
-    parse(path: string, content: string): { symbols: CodeSymbol[], anchors: import('@atlasmemory/core').Anchor[], imports: import('@atlasmemory/core').Import[], refs: import('@atlasmemory/core').CodeRef[] } {
-        const ext = path.split('.').pop();
+    parse(filePath: string, content: string): { symbols: CodeSymbol[], anchors: import('@atlasmemory/core').Anchor[], imports: import('@atlasmemory/core').Import[], refs: import('@atlasmemory/core').CodeRef[] } {
+        const ext = filePath.split('.').pop();
         if (!ext || !this.parsers[ext]) return { symbols: [], anchors: [], imports: [], refs: [] };
 
         const parser = this.parsers[ext];
         const query = this.queries[ext];
-        const tree = parser.parse(content);
+
+        let tree;
+        try {
+            tree = parser.parse(content);
+        } catch (e) {
+            // Tree-sitter can fail on malformed files — skip gracefully
+            return { symbols: [], anchors: [], imports: [], refs: [] };
+        }
 
         const symbols: CodeSymbol[] = [];
         const anchors: import('@atlasmemory/core').Anchor[] = [];

@@ -30,7 +30,8 @@ export class TaskPackBuilder {
         // --- P1: Header & Objective ---
         const objectiveClaim = prover.applyPolicy([{ text: objective, scopePath: process.cwd() }], proofPolicy, 3);
         const objectiveLine = objectiveClaim.map(claim => renderClaim(claim)).join('\n') || 'C:Objective omitted due to proof policy';
-        const header = `# Task Pack v3\n\n## Objective\n${objectiveLine}\n\n## Project Map\n(To be implemented: Tree view)\n\n`;
+        const projectMap = this.buildProjectMap(candidates);
+        const header = `# Task Pack v3\n\n## Objective\n${objectiveLine}\n\n## Project Map\n${projectMap}\n\n`;
         const headerTokens = this.estimateTokens(header);
 
         if (headerTokens > tokenBudget) {
@@ -373,6 +374,63 @@ export class TaskPackBuilder {
         // startLine is 1-indexed
         const snippet = lines.slice(startLine - 1, endLine).join('\n');
         return crypto.createHash('sha256').update(snippet).digest('hex');
+    }
+
+    private buildProjectMap(candidateIds: string[]): string {
+        // Build a compact tree view from candidate file paths
+        const paths: string[] = [];
+        for (const id of candidateIds) {
+            const card = this.store.getFileCard(id);
+            if (card) paths.push(card.path);
+        }
+        if (paths.length === 0) return '(no files)';
+
+        // Find common prefix
+        const parts = paths.map(p => p.replace(/\\/g, '/').split('/'));
+        let prefix = '';
+        if (parts.length > 1) {
+            const first = parts[0];
+            let i = 0;
+            while (i < first.length && parts.every(p => p[i] === first[i])) i++;
+            prefix = first.slice(0, i).join('/');
+        } else {
+            prefix = parts[0].slice(0, -1).join('/');
+        }
+
+        // Build tree relative to prefix
+        const relPaths = paths.map(p => {
+            const rel = p.replace(/\\/g, '/').slice(prefix.length).replace(/^\//, '');
+            return rel || path.basename(p);
+        }).sort();
+
+        // Group by directory
+        const dirs = new Map<string, string[]>();
+        for (const rel of relPaths) {
+            const dir = path.dirname(rel) === '.' ? '.' : path.dirname(rel);
+            if (!dirs.has(dir)) dirs.set(dir, []);
+            dirs.get(dir)!.push(path.basename(rel));
+        }
+
+        const lines: string[] = [];
+        const root = prefix ? path.basename(prefix) + '/' : './';
+        lines.push('```');
+        lines.push(root);
+        const dirEntries = Array.from(dirs.entries()).sort();
+        for (let i = 0; i < dirEntries.length; i++) {
+            const [dir, files] = dirEntries[i];
+            const isLast = i === dirEntries.length - 1;
+            if (dir !== '.') {
+                lines.push(`${isLast ? '└── ' : '├── '}${dir}/`);
+            }
+            const indent = dir === '.' ? '' : (isLast ? '    ' : '│   ');
+            for (let j = 0; j < files.length; j++) {
+                const fileIsLast = j === files.length - 1 && (isLast || dir === '.');
+                const connector = dir === '.' ? (j === files.length - 1 && isLast ? '└── ' : '├── ') : (j === files.length - 1 ? '└── ' : '├── ');
+                lines.push(`${indent}${connector}${files[j]}`);
+            }
+        }
+        lines.push('```');
+        return lines.join('\n');
     }
 
     private estimateTokens(text: string): number {
