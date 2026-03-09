@@ -1,0 +1,17 @@
+{
+    "name":  "@atlasmemory/taskpack",
+    "version":  "0.1.0",
+    "main":  "dist/src/index.js",
+    "types":  "dist/src/index.d.ts",
+    "scripts":  {
+                    "build":  "tsc",
+                    "test":  "echo \"Error: no test specified\" \u0026\u0026 exit 1"
+                },
+    "dependencies":  {
+                         "@atlasmemory/core":  "*",
+                         "@atlasmemory/store":  "*",
+                         "@atlasmemory/retrieval":  "*",
+                         "@atlasmemory/summarizer":  "*"
+                     },
+    "type":  "module"
+}

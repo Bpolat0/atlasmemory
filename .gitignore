@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Compiled TS artifacts in source dirs
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts.map
+apps/*/src/**/*.js
+apps/*/src/**/*.d.ts
+apps/*/src/**/*.js.map
+apps/*/src/**/*.d.ts.map
+
+# Database & runtime
+.atlas/
+*.db
+*.db-journal
+*.db-wal
+
+# Eval outputs & synthetic repos (generated on demand)
+apps/eval/reports/
+apps/eval/synth-repo/
+apps/eval/synth-100/
+apps/eval/synth-500/
+synth-100/
+synth-500/
+reports/
+
+# OS & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Debug utilities (one-off scripts)
+debug-db.cjs
+debug-db.js
+show-card.cjs
+test-sfm-loop.js
+
+# Environment & secrets
+.env
+.env.*
+*.key
+
+# Cache
+.cache/
+.turbo/
+coverage/
+out/
+build/
+.gemini/

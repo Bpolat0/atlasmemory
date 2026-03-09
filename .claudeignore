@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+*.d.ts
+*.map
+*.min.*
+
+# Database & runtime
+.atlas/
+*.db
+*.db-journal
+*.db-wal
+
+# Eval outputs
+apps/eval/reports/
+synth-100/
+synth-500/
+reports/
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Git
+.git/
+
+# Debug scripts (one-off utilities)
+debug-db.cjs
+debug-db.js
+show-card.cjs
+test-sfm-loop.js
+
+# Cache
+.cache/
+.turbo/
+coverage/
+out/
+build/

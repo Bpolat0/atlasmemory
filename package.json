@@ -1,0 +1,26 @@
+{
+    "name":  "atlasmemory-monorepo",
+    "private":  true,
+    "workspaces":  [
+                       "packages/*",
+                       "apps/*"
+                   ],
+    "scripts":  {
+                    "build":  "npm --workspaces run build",
+                    "test":  "npm --workspaces --if-present run test",
+                    "eval":  "node apps/eval/dist/src/index.js run-all",
+                    "eval:synth100":  "node apps/eval/dist/src/index.js run --repo apps/eval/synth-100 --out apps/eval/reports --desc \"synth-100\"",
+                    "eval:synth500":  "node apps/eval/dist/src/index.js run --repo apps/eval/synth-500 --out apps/eval/reports --desc \"synth-500\"",
+                    "eval:real":  "node apps/eval/dist/src/index.js run --repo . --out apps/eval/reports --desc \"real-repo-smoke\" --smoke --skipIndex --incremental --db-path .atlas/atlas.db",
+                    "eval:real:heal":  "node apps/eval/dist/src/index.js run --repo . --out apps/eval/reports --desc \"real-repo-smoke-heal\" --smoke --skipIndex --incremental --db-path .atlas/atlas.db --autoHealOnLowCoverage --allowFullIndexFallback",
+                    "selftest:agent":  "node scripts/agent-selftest.mjs"
+                },
+    "devDependencies":  {
+                            "@types/better-sqlite3":  "^7.6.13",
+                            "@types/node":  "^20.19.33",
+                            "eslint":  "^8.0.0",
+                            "prettier":  "^3.0.0",
+                            "typescript":  "^5.0.0"
+                        },
+    "type":  "module"
+}

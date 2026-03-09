@@ -1,0 +1,757 @@
+import Database from 'better-sqlite3';
+import { SCHEMA } from './schema.js';
+import type { CodeSymbol, FileCard, Import, SymbolCard, Anchor, CodeRef, FlowCard, ProjectCard, ContextSnapshot, DbSignature } from '@atlasmemory/core';
+import crypto from 'crypto';
+
+export class Store {
+    public db: Database.Database;
+
+    constructor(dbPath: string) {
+        this.db = new Database(dbPath);
+        this.init();
+    }
+
+    private init() {
+        this.db.exec(SCHEMA);
+        // Migration for Phase 7A
+        try {
+            this.db.prepare("ALTER TABLE file_cards ADD COLUMN quality_score REAL DEFAULT 0").run();
+        } catch (e) { /* ignore if exists */ }
+        try {
+            this.db.prepare("ALTER TABLE file_cards ADD COLUMN quality_flags_json TEXT").run();
+        } catch (e) { /* ignore if exists */ }
+        try {
+            this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level2 TEXT").run();
+        } catch (e) { /* ignore if exists */ }
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS flow_cards (
+                id TEXT PRIMARY KEY,
+                file_id TEXT NOT NULL,
+                root_symbol_id TEXT,
+                flow_kind TEXT NOT NULL,
+                hop_count INTEGER NOT NULL,
+                summary TEXT NOT NULL,
+                trace_json TEXT NOT NULL,
+                evidence_anchors_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(file_id) REFERENCES files(id),
+                FOREIGN KEY(root_symbol_id) REFERENCES symbols(id)
+            )
+        `);
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS project_card (
+                id TEXT PRIMARY KEY,
+                purpose TEXT NOT NULL,
+                architecture_bullets_json TEXT NOT NULL,
+                invariants_json TEXT NOT NULL,
+                entrypoints_json TEXT NOT NULL,
+                key_flows_json TEXT NOT NULL,
+                tools_protocol_json TEXT NOT NULL,
+                glossary_json TEXT NOT NULL,
+                card_hash TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        `);
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS session_state (
+                state_key TEXT PRIMARY KEY,
+                state_value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        `);
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS context_snapshots (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                created_at TEXT NOT NULL,
+                repo_id TEXT NOT NULL,
+                git_head TEXT,
+                db_sig_json TEXT NOT NULL,
+                bootpack_hash TEXT,
+                deltapack_hash TEXT,
+                taskpack_hash TEXT,
+                objective TEXT,
+                budgets_json TEXT,
+                proof_mode TEXT,
+                min_db_coverage REAL,
+                contract_hash TEXT NOT NULL
+            )
+        `);
+    }
+
+    // --- Files ---
+    addFile(path: string, language: string, contentHash: string, loc: number, content: string) {
+        const stmt = this.db.prepare(`
+      INSERT INTO files (id, path, language, content_hash, loc, updated_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(path) DO UPDATE SET
+        language = excluded.language,
+        content_hash = excluded.content_hash,
+        loc = excluded.loc,
+        updated_at = datetime('now')
+    `);
+        const id = crypto.randomUUID();
+        // Check if file exists to get ID? Or rely on conflict update?
+        // If conflict update, ID doesn't change.
+        // We really should UPSERT properly.
+        // If it exists, we need the ID.
+
+        // Simpler: Check existing
+        const existing = this.getFileId(path);
+        const fileId = existing || id;
+
+        if (existing) {
+            this.db.prepare(`
+                UPDATE files SET 
+                    language = ?, content_hash = ?, loc = ?, updated_at = datetime('now')
+                WHERE id = ?
+             `).run(language, contentHash, loc, fileId);
+        } else {
+            this.db.prepare(`
+                INSERT INTO files (id, path, language, content_hash, loc, updated_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))
+             `).run(fileId, path, language, contentHash, loc);
+        }
+
+        // Update FTS
+        // Delete old (if any)
+        this.db.prepare('DELETE FROM fts_files WHERE file_id = ?').run(fileId);
+        this.db.prepare('DELETE FROM fts_symbols WHERE file_id = ?').run(fileId); // Clear symbols too if file updated
+
+        // Insert new
+        this.db.prepare('INSERT INTO fts_files (path, content, file_id) VALUES (?, ?, ?)').run(path, content, fileId);
+
+        return fileId;
+    }
+
+    getFileId(path: string): string | undefined {
+        const row = this.db.prepare('SELECT id FROM files WHERE path = ?').get(path) as { id: string } | undefined;
+        return row?.id;
+    }
+
+    getFiles(): { id: string, path: string, contentHash: string }[] {
+        return this.db.prepare('SELECT id, path, content_hash as contentHash FROM files').all() as any[];
+    }
+
+    getFilesWithMeta(): { id: string, path: string, contentHash: string, updatedAt: string }[] {
+        return this.db.prepare('SELECT id, path, content_hash as contentHash, updated_at as updatedAt FROM files').all() as any[];
+    }
+
+    deleteFile(id: string) {
+        const deleteTransaction = this.db.transaction(() => {
+            // 0. Delete Flow Cards first (root_symbol_id FK -> symbols.id)
+            this.db.prepare('DELETE FROM flow_cards WHERE file_id = ?').run(id);
+
+            // 1. Get Symbols to clean up refs
+            const symbols = this.db.prepare('SELECT id FROM symbols WHERE file_id = ?').all(id) as { id: string }[];
+            const symbolIds = symbols.map(s => s.id);
+
+            if (symbolIds.length > 0) {
+                const placeholders = symbolIds.map(() => '?').join(',');
+                this.db.prepare(`DELETE FROM refs WHERE from_symbol_id IN (${placeholders})`).run(...symbolIds);
+                this.db.prepare(`DELETE FROM refs WHERE to_symbol_id IN (${placeholders})`).run(...symbolIds);
+            }
+
+            // 2. Delete Symbols
+            this.db.prepare('DELETE FROM symbols WHERE file_id = ?').run(id);
+
+            // 3. Delete Imports
+            this.db.prepare('DELETE FROM imports WHERE file_id = ?').run(id);
+
+            // 4. Delete Anchors
+            this.db.prepare('DELETE FROM anchors WHERE file_id = ?').run(id);
+
+            // 5. Delete File Card
+            this.db.prepare('DELETE FROM file_cards WHERE file_id = ?').run(id);
+
+            // 6. Delete File
+            this.db.prepare('DELETE FROM files WHERE id = ?').run(id);
+
+            // 7. Delete FTS
+            this.db.prepare('DELETE FROM fts_files WHERE file_id = ?').run(id);
+            this.db.prepare('DELETE FROM fts_symbols WHERE file_id = ?').run(id);
+        });
+
+        deleteTransaction();
+    }
+
+    // --- Cards ---
+    addFileCard(card: FileCard) {
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO file_cards (file_id, card_level0, card_level1, card_level2, evidence_anchors_json, card_hash, quality_score, quality_flags_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `);
+        stmt.run(
+            card.fileId,
+            JSON.stringify(card.level0),
+            card.level1 ? JSON.stringify(card.level1) : null,
+            card.level2 ? JSON.stringify(card.level2) : null,
+            card.level1?.evidenceAnchorIds ? JSON.stringify(card.level1.evidenceAnchorIds) : null,
+            card.cardHash,
+            card.qualityScore || 0,
+            card.qualityFlags ? JSON.stringify(card.qualityFlags) : null
+        );
+    }
+
+    getFileCard(fileId: string): FileCard | undefined {
+        const row = this.db.prepare('SELECT * FROM file_cards WHERE file_id = ?').get(fileId) as any;
+        if (!row) return undefined;
+
+        const file = this.db.prepare('SELECT path FROM files WHERE id = ?').get(fileId) as any;
+
+        const level1 = row.card_level1 ? JSON.parse(row.card_level1) : undefined;
+        if (level1 && row.evidence_anchors_json) {
+            try {
+                // Rename DB column conceptually or just usage
+                level1.evidenceAnchorIds = JSON.parse(row.evidence_anchors_json);
+            } catch (e) {
+                console.error('Failed to parse evidence_anchors_json', e);
+                // fallback to empty if corrupt
+                level1.evidenceAnchorIds = [];
+            }
+        }
+
+        return {
+            fileId,
+            path: file?.path || '',
+            level0: JSON.parse(row.card_level0),
+            level1,
+            level2: row.card_level2 ? JSON.parse(row.card_level2) : undefined,
+            cardHash: row.card_hash,
+            qualityScore: row.quality_score || 0,
+            qualityFlags: row.quality_flags_json ? JSON.parse(row.quality_flags_json) : []
+        };
+    }
+
+    addFolderCard(card: import('@atlasmemory/core').FolderCard) {
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO folder_cards (folder_path, card_level0, card_level1, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+        `);
+        stmt.run(
+            card.folderPath,
+            JSON.stringify(card.level0),
+            card.level1 ? JSON.stringify(card.level1) : null
+        );
+    }
+
+    getFolderCard(folderPath: string): import('@atlasmemory/core').FolderCard | undefined {
+        const row = this.db.prepare('SELECT * FROM folder_cards WHERE folder_path = ?').get(folderPath) as any;
+        if (!row) return undefined;
+
+        return {
+            folderPath,
+            level0: JSON.parse(row.card_level0),
+            level1: row.card_level1 ? JSON.parse(row.card_level1) : undefined,
+            updatedAt: row.updated_at
+        };
+    }
+
+    // --- Symbols ---
+    addSymbol(symbol: CodeSymbol) {
+        const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO symbols (id, file_id, kind, name, qualified_name, signature, visibility, start_line, end_line, signature_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+        stmt.run(
+            symbol.id, symbol.fileId, symbol.kind, symbol.name, symbol.qualifiedName,
+            symbol.signature, symbol.visibility, symbol.startLine, symbol.endLine, symbol.signatureHash
+        );
+
+        // Update FTS Symbol
+        this.db.prepare('INSERT INTO fts_symbols (name, qualified_name, signature, file_id) VALUES (?, ?, ?, ?)').run(symbol.name, symbol.qualifiedName, symbol.signature, symbol.fileId);
+    }
+
+    getSymbolsForFile(fileId: string): CodeSymbol[] {
+        return this.db.prepare('SELECT * FROM symbols WHERE file_id = ?').all(fileId).map((row: any) => ({
+            id: row.id,
+            fileId: row.file_id,
+            kind: row.kind,
+            name: row.name,
+            qualifiedName: row.qualified_name,
+            signature: row.signature,
+            visibility: row.visibility,
+            startLine: row.start_line,
+            endLine: row.end_line,
+            signatureHash: row.signature_hash
+        }));
+    }
+
+    // --- Symbol Cards ---
+    addSymbolCard(card: SymbolCard) {
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO symbol_cards (symbol_id, card_level0, card_level1, evidence_anchors_json, quality_score, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        `);
+        stmt.run(
+            card.symbolId,
+            JSON.stringify(card.level0),
+            card.level1 ? JSON.stringify(card.level1) : null,
+            card.level1?.evidenceAnchorIds ? JSON.stringify(card.level1.evidenceAnchorIds) : null,
+            0
+        );
+    }
+
+    getSymbolCard(symbolId: string): SymbolCard | undefined {
+        const row = this.db.prepare('SELECT * FROM symbol_cards WHERE symbol_id = ?').get(symbolId) as any;
+        if (!row) return undefined;
+
+        const level1 = row.card_level1 ? JSON.parse(row.card_level1) : undefined;
+        if (level1 && row.evidence_anchors_json) {
+            try { level1.evidenceAnchorIds = JSON.parse(row.evidence_anchors_json); } catch (e) { }
+        }
+
+        return {
+            symbolId,
+            level0: JSON.parse(row.card_level0),
+            level1
+        };
+    }
+
+    // --- Refs ---
+    addRef(ref: import('@atlasmemory/core').CodeRef) {
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO refs (id, from_symbol_id, to_symbol_id, to_name, ref_kind, anchor_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(ref.id, ref.fromSymbolId, ref.toSymbolId || null, ref.toName, ref.kind, ref.anchorId || null);
+    }
+
+    getRefsFrom(symbolId: string): import('@atlasmemory/core').CodeRef[] {
+        return this.db.prepare('SELECT * FROM refs WHERE from_symbol_id = ?').all(symbolId).map((row: any) => ({
+            id: row.id,
+            fromSymbolId: row.from_symbol_id,
+            toSymbolId: row.to_symbol_id,
+            toName: row.to_name,
+            kind: row.ref_kind as any,
+            anchorId: row.anchor_id
+        }));
+    }
+
+    getRefsForFile(fileId: string, kind?: 'call' | 'import' | 'usage'): CodeRef[] {
+        const rows = kind
+            ? this.db.prepare(`
+                SELECT r.*
+                FROM refs r
+                JOIN symbols s ON r.from_symbol_id = s.id
+                WHERE s.file_id = ? AND r.ref_kind = ?
+            `).all(fileId, kind)
+            : this.db.prepare(`
+                SELECT r.*
+                FROM refs r
+                JOIN symbols s ON r.from_symbol_id = s.id
+                WHERE s.file_id = ?
+            `).all(fileId);
+
+        return (rows as any[]).map((row: any) => ({
+            id: row.id,
+            fromSymbolId: row.from_symbol_id,
+            toSymbolId: row.to_symbol_id,
+            toName: row.to_name,
+            kind: row.ref_kind,
+            anchorId: row.anchor_id
+        }));
+    }
+
+    getSymbol(symbolId: string): CodeSymbol | undefined {
+        const row = this.db.prepare('SELECT * FROM symbols WHERE id = ?').get(symbolId) as any;
+        if (!row) return undefined;
+        return {
+            id: row.id,
+            fileId: row.file_id,
+            kind: row.kind,
+            name: row.name,
+            qualifiedName: row.qualified_name,
+            signature: row.signature,
+            visibility: row.visibility,
+            startLine: row.start_line,
+            endLine: row.end_line,
+            signatureHash: row.signature_hash
+        };
+    }
+
+    findSymbolsByName(name: string, fileId?: string): CodeSymbol[] {
+        const rows = fileId
+            ? this.db.prepare('SELECT * FROM symbols WHERE file_id = ? AND (name = ? OR qualified_name = ?)').all(fileId, name, name)
+            : this.db.prepare('SELECT * FROM symbols WHERE name = ? OR qualified_name = ?').all(name, name);
+
+        return (rows as any[]).map((row: any) => ({
+            id: row.id,
+            fileId: row.file_id,
+            kind: row.kind,
+            name: row.name,
+            qualifiedName: row.qualified_name,
+            signature: row.signature,
+            visibility: row.visibility,
+            startLine: row.start_line,
+            endLine: row.end_line,
+            signatureHash: row.signature_hash
+        }));
+    }
+
+    // --- Imports ---
+    addImport(imp: Import) {
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO imports (id, file_id, imported_module, imported_symbol, resolved_file_id, is_external)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        stmt.run(imp.id, imp.fileId, imp.importedModule, imp.importedSymbol, imp.resolvedFileId, imp.isExternal ? 1 : 0);
+    }
+
+    getImportsForFile(fileId: string): Import[] {
+        return this.db.prepare('SELECT * FROM imports WHERE file_id = ?').all(fileId).map((row: any) => ({
+            id: row.id,
+            fileId: row.file_id,
+            importedModule: row.imported_module,
+            importedSymbol: row.imported_symbol || undefined,
+            resolvedFileId: row.resolved_file_id || undefined,
+            isExternal: row.is_external === 1
+        }));
+    }
+
+    // --- Flow Cards ---
+    upsertFlowCard(card: FlowCard) {
+        this.db.prepare(`
+            INSERT OR REPLACE INTO flow_cards
+            (id, file_id, root_symbol_id, flow_kind, hop_count, summary, trace_json, evidence_anchors_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(
+            card.id,
+            card.fileId,
+            card.rootSymbolId || null,
+            card.flowKind,
+            card.hopCount,
+            card.summary,
+            JSON.stringify(card.trace),
+            JSON.stringify(card.evidenceAnchorIds)
+        );
+    }
+
+    getFlowCardsForFile(fileId: string): FlowCard[] {
+        return this.db.prepare('SELECT * FROM flow_cards WHERE file_id = ? ORDER BY updated_at DESC').all(fileId).map((row: any) => ({
+            id: row.id,
+            fileId: row.file_id,
+            rootSymbolId: row.root_symbol_id || undefined,
+            flowKind: row.flow_kind,
+            hopCount: row.hop_count,
+            summary: row.summary,
+            trace: JSON.parse(row.trace_json || '[]'),
+            evidenceAnchorIds: JSON.parse(row.evidence_anchors_json || '[]'),
+            updatedAt: row.updated_at
+        }));
+    }
+
+    deleteFlowCardsForFile(fileId: string) {
+        this.db.prepare('DELETE FROM flow_cards WHERE file_id = ?').run(fileId);
+    }
+
+    getAllFlowCards(): FlowCard[] {
+        return this.db.prepare('SELECT * FROM flow_cards ORDER BY updated_at DESC').all().map((row: any) => ({
+            id: row.id,
+            fileId: row.file_id,
+            rootSymbolId: row.root_symbol_id || undefined,
+            flowKind: row.flow_kind,
+            hopCount: row.hop_count,
+            summary: row.summary,
+            trace: JSON.parse(row.trace_json || '[]'),
+            evidenceAnchorIds: JSON.parse(row.evidence_anchors_json || '[]'),
+            updatedAt: row.updated_at
+        }));
+    }
+
+    // --- Project Card ---
+    upsertProjectCard(card: ProjectCard) {
+        this.db.prepare(`
+            INSERT OR REPLACE INTO project_card
+            (id, purpose, architecture_bullets_json, invariants_json, entrypoints_json, key_flows_json, tools_protocol_json, glossary_json, card_hash, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(
+            card.id,
+            card.purpose,
+            JSON.stringify(card.architectureBullets),
+            JSON.stringify(card.invariants),
+            JSON.stringify(card.entrypoints),
+            JSON.stringify(card.keyFlowIds),
+            JSON.stringify(card.toolsProtocol),
+            JSON.stringify(card.glossary),
+            card.cardHash
+        );
+    }
+
+    getProjectCard(id: string = 'singleton'): ProjectCard | undefined {
+        const row = this.db.prepare('SELECT * FROM project_card WHERE id = ?').get(id) as any;
+        if (!row) return undefined;
+        return {
+            id: row.id,
+            purpose: row.purpose,
+            architectureBullets: JSON.parse(row.architecture_bullets_json || '[]'),
+            invariants: JSON.parse(row.invariants_json || '[]'),
+            entrypoints: JSON.parse(row.entrypoints_json || '[]'),
+            keyFlowIds: JSON.parse(row.key_flows_json || '[]'),
+            toolsProtocol: JSON.parse(row.tools_protocol_json || '[]'),
+            glossary: JSON.parse(row.glossary_json || '{}'),
+            cardHash: row.card_hash,
+            updatedAt: row.updated_at
+        };
+    }
+
+    // --- Session State ---
+    setState(key: string, value: string, sessionId?: string) {
+        const scopedKey = sessionId ? `${sessionId}:${key}` : key;
+        this.db.prepare(`
+            INSERT OR REPLACE INTO session_state (state_key, state_value, updated_at)
+            VALUES (?, ?, datetime('now'))
+        `).run(scopedKey, value);
+    }
+
+    getState(key: string, sessionId?: string): string | undefined {
+        const scopedKey = sessionId ? `${sessionId}:${key}` : key;
+        const row = this.db.prepare('SELECT state_value FROM session_state WHERE state_key = ?').get(scopedKey) as any;
+        return row?.state_value;
+    }
+
+    // --- Context Snapshot & Contract ---
+    createSnapshot(snapshot: ContextSnapshot, contractHash: string) {
+        this.db.prepare(`
+            INSERT OR REPLACE INTO context_snapshots
+            (id, session_id, created_at, repo_id, git_head, db_sig_json, bootpack_hash, deltapack_hash, taskpack_hash, objective, budgets_json, proof_mode, min_db_coverage, contract_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            snapshot.id,
+            snapshot.sessionId || null,
+            snapshot.createdAt,
+            snapshot.repoId,
+            snapshot.gitHead || null,
+            JSON.stringify(snapshot.dbSig || {}),
+            snapshot.bootpackHash || null,
+            snapshot.deltapackHash || null,
+            snapshot.taskpackHash || null,
+            snapshot.objective || null,
+            snapshot.budgets ? JSON.stringify(snapshot.budgets) : null,
+            snapshot.proofMode || null,
+            snapshot.minDbCoverage ?? null,
+            contractHash
+        );
+    }
+
+    getLatestSnapshot(sessionId?: string): ContextSnapshot | undefined {
+        const row = sessionId
+            ? this.db.prepare('SELECT * FROM context_snapshots WHERE session_id = ? ORDER BY created_at DESC LIMIT 1').get(sessionId) as any
+            : this.db.prepare('SELECT * FROM context_snapshots ORDER BY created_at DESC LIMIT 1').get() as any;
+
+        if (!row) return undefined;
+        return {
+            id: row.id,
+            sessionId: row.session_id || undefined,
+            createdAt: row.created_at,
+            repoId: row.repo_id,
+            gitHead: row.git_head || undefined,
+            dbSig: JSON.parse(row.db_sig_json || '{}'),
+            bootpackHash: row.bootpack_hash || undefined,
+            deltapackHash: row.deltapack_hash || undefined,
+            taskpackHash: row.taskpack_hash || undefined,
+            objective: row.objective || undefined,
+            budgets: row.budgets_json ? JSON.parse(row.budgets_json) : undefined,
+            proofMode: row.proof_mode || undefined,
+            minDbCoverage: row.min_db_coverage ?? undefined,
+            contractHash: row.contract_hash
+        };
+    }
+
+    getSnapshotByContractHash(contractHash: string): ContextSnapshot | undefined {
+        const row = this.db.prepare('SELECT * FROM context_snapshots WHERE contract_hash = ? ORDER BY created_at DESC LIMIT 1').get(contractHash) as any;
+        if (!row) return undefined;
+        return {
+            id: row.id,
+            sessionId: row.session_id || undefined,
+            createdAt: row.created_at,
+            repoId: row.repo_id,
+            gitHead: row.git_head || undefined,
+            dbSig: JSON.parse(row.db_sig_json || '{}'),
+            bootpackHash: row.bootpack_hash || undefined,
+            deltapackHash: row.deltapack_hash || undefined,
+            taskpackHash: row.taskpack_hash || undefined,
+            objective: row.objective || undefined,
+            budgets: row.budgets_json ? JSON.parse(row.budgets_json) : undefined,
+            proofMode: row.proof_mode || undefined,
+            minDbCoverage: row.min_db_coverage ?? undefined,
+            contractHash: row.contract_hash
+        };
+    }
+
+    getDbSignature(_repoRoot?: string): DbSignature {
+        const getCount = (tableName: string) => {
+            const row = this.db.prepare(`SELECT COUNT(*) as c FROM ${tableName}`).get() as any;
+            return Number(row?.c || 0);
+        };
+
+        const filesCount = getCount('files');
+        const symbolsCount = getCount('symbols');
+        const anchorsCount = getCount('anchors');
+        const refsCount = getCount('refs');
+        const fileCardsCount = getCount('file_cards');
+        const flowCardsCount = getCount('flow_cards');
+
+        const maxFilesUpdatedAt = (this.db.prepare('SELECT MAX(updated_at) as v FROM files').get() as any)?.v || undefined;
+        const maxCardsUpdatedAt = (this.db.prepare(`
+            SELECT MAX(ts) as v FROM (
+                SELECT updated_at as ts FROM file_cards
+                UNION ALL
+                SELECT updated_at as ts FROM flow_cards
+            )
+        `).get() as any)?.v || undefined;
+
+        const rollingSource = [
+            filesCount,
+            maxFilesUpdatedAt || '',
+            symbolsCount,
+            anchorsCount,
+            refsCount,
+            fileCardsCount,
+            flowCardsCount,
+            maxCardsUpdatedAt || ''
+        ].join('|');
+
+        return {
+            filesCount,
+            symbolsCount,
+            anchorsCount,
+            refsCount,
+            fileCardsCount,
+            flowCardsCount,
+            maxFilesUpdatedAt,
+            maxCardsUpdatedAt,
+            rollingHash: crypto.createHash('sha256').update(rollingSource).digest('hex')
+        };
+    }
+
+    // --- Files Helper ---
+    getFileById(fileId: string): { id: string, path: string, contentHash: string } | undefined {
+        const row = this.db.prepare('SELECT id, path, content_hash as contentHash FROM files WHERE id = ?').get(fileId) as any;
+        return row || undefined;
+    }
+
+    // --- Anchors ---
+    upsertAnchor(anchor: Anchor) {
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO anchors (id, file_id, start_line, end_line, snippet_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        `);
+        stmt.run(anchor.id, anchor.fileId, anchor.startLine, anchor.endLine, anchor.snippetHash);
+    }
+
+    getAnchor(id: string): Anchor | undefined {
+        const row = this.db.prepare('SELECT * FROM anchors WHERE id = ?').get(id) as any;
+        if (!row) return undefined;
+        return {
+            id: row.id,
+            fileId: row.file_id,
+            startLine: row.start_line,
+            endLine: row.end_line,
+            snippetHash: row.snippet_hash
+        };
+    }
+
+    getAnchorsForFile(fileId: string): Anchor[] {
+        return this.db.prepare('SELECT * FROM anchors WHERE file_id = ? ORDER BY start_line').all(fileId).map((row: any) => ({
+            id: row.id,
+            fileId: row.file_id,
+            startLine: row.start_line,
+            endLine: row.end_line,
+            snippetHash: row.snippet_hash
+        }));
+    }
+
+    deleteAnchorsForFile(fileId: string) {
+        this.db.prepare('DELETE FROM anchors WHERE file_id = ?').run(fileId);
+    }
+
+    // --- Search ---
+    searchFiles(query: string) {
+        return this.db.prepare('SELECT * FROM files WHERE path LIKE ?').all(`%${query}%`);
+    }
+
+    scoredSearch(query: string, limit: number = 10): { file: any, score: number }[] {
+        const scores = new Map<string, number>();
+
+        // 1. FTS Search - Files
+        try {
+            // Sanitize: Wrap in quotes to treat as literal, escape existing quotes
+            const safeQuery = `"${query.replace(/"/g, '""')}"`;
+            const fileMatches = this.db.prepare(`
+                SELECT file_id, rank 
+                FROM fts_files 
+                WHERE fts_files MATCH ? 
+                ORDER BY rank 
+                LIMIT ?
+            `).all(safeQuery, limit * 2) as { file_id: string, rank: number }[];
+
+            for (const match of fileMatches) {
+                // FTS5 rank is lower = better (more negative). We invert it for positive score.
+                const score = -1 * match.rank * 10;
+                scores.set(match.file_id, (scores.get(match.file_id) || 0) + score);
+            }
+        } catch (e) {
+            console.error('FTS File Search Error:', e);
+            // Ignore syntax errors in query (e.g. incomplete boolean)
+        }
+
+        // 2. FTS Search - Symbols
+        try {
+            const safeQuery = `"${query.replace(/"/g, '""')}"`;
+            const symbolMatches = this.db.prepare(`
+                SELECT file_id, rank 
+                FROM fts_symbols 
+                WHERE fts_symbols MATCH ? 
+                ORDER BY rank 
+                LIMIT ?
+            `).all(safeQuery, limit * 2) as { file_id: string, rank: number }[];
+
+            for (const match of symbolMatches) {
+                const score = -1 * match.rank * 20; // Symbols are weighty
+                scores.set(match.file_id, (scores.get(match.file_id) || 0) + score);
+            }
+        } catch (e) { }
+
+        // 3. Fallback: Path LIKE for short/partial queries that FTS might miss (or exact filenames)
+        const queryLower = query.toLowerCase();
+        // Only run LIKE if we have few results or query looks like a filename
+        const pathMatches = this.db.prepare('SELECT id, path FROM files WHERE path LIKE ? LIMIT ?').all(`%${query}%`, limit) as { id: string, path: string }[];
+
+        for (const file of pathMatches) {
+            // Base score for path match
+            scores.set(file.id, (scores.get(file.id) || 0) + 10);
+        }
+
+        const allIds = Array.from(scores.keys());
+        if (allIds.length === 0) return [];
+
+        const placeholders = allIds.map(() => '?').join(',');
+        const files = this.db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...allIds) as any[];
+
+        return files.map(file => {
+            let score = scores.get(file.id) || 0;
+            const pathLower = file.path.toLowerCase();
+            const fileName = pathLower.split(/[/\\]/).pop() || '';
+
+            // Exact filename match (Huge boost)
+            if (fileName === queryLower || fileName === queryLower + '.ts') score += 100;
+            if (fileName.includes(queryLower)) score += 20;
+
+            // Recency boost (simple decay)
+            const updated = new Date(file.updated_at).getTime();
+            const now = Date.now();
+            const daysDiff = (now - updated) / (1000 * 60 * 60 * 24);
+            score += Math.max(0, 5 - daysDiff);
+
+            return { file, score };
+        })
+            .filter(r => r.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit);
+    }
+
+    close() {
+        this.db.close();
+    }
+}

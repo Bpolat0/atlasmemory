@@ -1,0 +1,18 @@
+{
+    "name":  "@atlasmemory/mcp-server",
+    "version":  "0.1.0",
+    "main":  "dist/src/index.js",
+    "scripts":  {
+                    "build":  "tsc"
+                },
+    "dependencies":  {
+                         "@modelcontextprotocol/sdk":  "^0.6.0",
+                         "@atlasmemory/core":  "*",
+                         "@atlasmemory/store":  "*",
+                         "@atlasmemory/indexer":  "*",
+                         "@atlasmemory/summarizer":  "*",
+                         "@atlasmemory/retrieval":  "*",
+                         "@atlasmemory/taskpack":  "*"
+                     },
+    "type":  "module"
+}

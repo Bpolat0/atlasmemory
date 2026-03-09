@@ -1,0 +1,25 @@
+{
+    "name": "@atlasmemory/eval",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "generate": "node dist/src/index.js generate",
+        "eval": "node dist/src/index.js run"
+    },
+    "dependencies": {
+        "@atlasmemory/core": "*",
+        "@atlasmemory/store": "*",
+        "@atlasmemory/indexer": "*",
+        "@atlasmemory/retrieval": "*",
+        "@atlasmemory/summarizer": "*",
+        "@atlasmemory/taskpack": "*",
+        "commander": "^11.1.0",
+        "chalk": "^5.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.0",
+        "typescript": "^5.3.3"
+    }
+}

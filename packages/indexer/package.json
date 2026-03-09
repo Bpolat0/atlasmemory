@@ -1,0 +1,18 @@
+{
+    "name":  "@atlasmemory/indexer",
+    "version":  "0.1.0",
+    "main":  "dist/src/index.js",
+    "types":  "dist/src/index.d.ts",
+    "scripts":  {
+                    "build":  "tsc",
+                    "test":  "echo \"Error: no test specified\" \u0026\u0026 exit 1"
+                },
+    "dependencies":  {
+                         "tree-sitter":  "^0.20.6",
+                         "tree-sitter-typescript":  "^0.20.2",
+                         "tree-sitter-javascript":  "^0.20.1",
+                         "tree-sitter-python":  "^0.20.4",
+                         "@atlasmemory/core":  "*"
+                     },
+    "type":  "module"
+}
