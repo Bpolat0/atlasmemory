@@ -305,12 +305,17 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             }
 
             case 'index_file': {
-                const filePath = String(args.path);
+                const filePath = path.resolve(String(args.path));
                 if (!fs.existsSync(filePath)) {
-                    return { content: [{ type: 'text', text: `File not found: ${filePath}` }], isError: true };
+                    return { content: [{ type: 'text', text: `File not found: ${filePath}. Provide an absolute path to an existing file.` }], isError: true };
                 }
 
-                const content = fs.readFileSync(filePath, 'utf-8');
+                let content: string;
+                try {
+                    content = fs.readFileSync(filePath, 'utf-8');
+                } catch (e: any) {
+                    return { content: [{ type: 'text', text: `Cannot read file: ${e.message}` }], isError: true };
+                }
                 const { Indexer } = await import('@atlasmemory/indexer');
                 const indexer = new Indexer();
                 const { symbols, anchors, imports, refs } = indexer.parse(filePath, content);
@@ -360,7 +365,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const filePath = String(args.path);
                 const max = Number(args.max || 200);
                 const file = store.getFiles().find(f => f.path === filePath);
-                if (!file) return { content: [{ type: 'text', text: `File not indexed: ${filePath}` }], isError: true };
+                if (!file) return { content: [{ type: 'text', text: `File not indexed: ${filePath}. Run index_file or index_repo first.` }], isError: true };
 
                 const anchors = store.getAnchorsForFile(file.id);
                 const symbols = store.getSymbolsForFile(file.id);
@@ -392,7 +397,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const filePath = String(args.path);
                 const cardData = args.card as any;
                 const file = store.getFiles().find(f => f.path === filePath);
-                if (!file) return { content: [{ type: 'text', text: `File not indexed: ${filePath}` }], isError: true };
+                if (!file) return { content: [{ type: 'text', text: `File not indexed: ${filePath}. Run index_file or index_repo first.` }], isError: true };
                 if (!cardData?.level1) return { content: [{ type: 'text', text: 'Invalid card (missing level1)' }], isError: true };
 
                 const fullCard: any = {

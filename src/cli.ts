@@ -202,4 +202,63 @@ export function registerCliCommands(program: Command): void {
             if (!ok) { console.error(JSON.stringify({ ok: false, code: 'CONTRACT_NOT_FOUND' })); process.exitCode = 1; }
             else console.log(JSON.stringify({ ok: true, contractHash: options.contract }));
         });
+
+    program.command('doctor')
+        .description('Diagnose AtlasMemory setup and database health')
+        .action(() => {
+            const store = getStore();
+            const files = store.db.prepare('SELECT COUNT(*) as n FROM files').get() as { n: number };
+            const symbols = store.db.prepare('SELECT COUNT(*) as n FROM symbols').get() as { n: number };
+            const anchors = store.db.prepare('SELECT COUNT(*) as n FROM anchors').get() as { n: number };
+            const fileCards = store.db.prepare('SELECT COUNT(*) as n FROM file_cards').get() as { n: number };
+            const flowCards = store.db.prepare('SELECT COUNT(*) as n FROM flow_cards').get() as { n: number };
+            const ftsFiles = store.db.prepare('SELECT COUNT(*) as n FROM fts_files').get() as { n: number };
+            const ftsSymbols = store.db.prepare('SELECT COUNT(*) as n FROM fts_symbols').get() as { n: number };
+            const imports = store.db.prepare('SELECT COUNT(*) as n FROM imports').get() as { n: number };
+            const refs = store.db.prepare('SELECT COUNT(*) as n FROM refs').get() as { n: number };
+
+            let hasFtsStemmer = false;
+            try {
+                const ftsInfo = store.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='fts_files'").get() as { sql: string } | undefined;
+                hasFtsStemmer = !!ftsInfo?.sql?.includes('porter');
+            } catch (e) { }
+
+            const lastIndex = store.getState('last_index_at');
+
+            console.log('AtlasMemory Doctor');
+            console.log('==================');
+            console.log(`  Database:      ${path.resolve(process.env.ATLAS_DB_PATH || '.atlas/atlas.db')}`);
+            console.log(`  Last Index:    ${lastIndex || 'never'}`);
+            console.log(`  Porter FTS:    ${hasFtsStemmer ? 'YES' : 'NO (re-index recommended)'}`);
+            console.log('');
+            console.log('  Table Counts:');
+            console.log(`    Files:       ${files.n}`);
+            console.log(`    Symbols:     ${symbols.n}`);
+            console.log(`    Anchors:     ${anchors.n}`);
+            console.log(`    File Cards:  ${fileCards.n}`);
+            console.log(`    Flow Cards:  ${flowCards.n}`);
+            console.log(`    Imports:     ${imports.n}`);
+            console.log(`    Refs:        ${refs.n}`);
+            console.log(`    FTS Files:   ${ftsFiles.n}`);
+            console.log(`    FTS Symbols: ${ftsSymbols.n}`);
+            console.log('');
+
+            const issues: string[] = [];
+            if (files.n === 0) issues.push('No files indexed. Run: atlasmemory index .');
+            if (files.n > 0 && fileCards.n === 0) issues.push('Files indexed but no cards generated.');
+            if (files.n > 0 && ftsFiles.n === 0) issues.push('FTS index empty. Re-index: atlasmemory index .');
+            if (!hasFtsStemmer) issues.push('FTS missing Porter stemmer. Delete .atlas/atlas.db and re-index.');
+            if (files.n > 0 && symbols.n === 0) issues.push('No symbols found. Check if files have supported extensions (.ts/.js/.py).');
+            const coverage = files.n > 0 ? (fileCards.n / files.n * 100).toFixed(0) : '0';
+            console.log(`  Card Coverage: ${coverage}%`);
+
+            if (issues.length === 0) {
+                console.log('  Status:        HEALTHY');
+            } else {
+                console.log('  Status:        ISSUES FOUND');
+                for (const issue of issues) {
+                    console.log(`    - ${issue}`);
+                }
+            }
+        });
 }
