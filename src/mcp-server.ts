@@ -6,7 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { Store } from '@atlasmemory/store';
 import { SearchService, GraphService } from '@atlasmemory/retrieval';
-import { ImpactAnalyzer, PrefetchEngine, DiffEnricher, BudgetTracker, ConversationMemory, SessionLearner } from '@atlasmemory/intelligence';
+import { ImpactAnalyzer, PrefetchEngine, DiffEnricher, BudgetTracker, ConversationMemory, SessionLearner, CodeHealthAnalyzer, EnrichmentCoordinator, ProactiveResponseBuilder } from '@atlasmemory/intelligence';
 import { TaskPackBuilder, BootPackBuilder, ContextContractService } from '@atlasmemory/taskpack';
 import { CardGenerator, FlowGenerator, scoreFileCard } from '@atlasmemory/summarizer';
 import { sha256 } from '@atlasmemory/core';
@@ -46,6 +46,10 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
     const conversationMemory = new ConversationMemory(store);
     const sessionLearner = new SessionLearner(store);
 
+    // Phase 20: Code Health
+    const codeHealthAnalyzer = new CodeHealthAnalyzer(store, process.cwd());
+    let codeHealthAnalyzed = false;
+
     let reverseRefsBuilt = false;
     async function ensureReverseRefs(): Promise<void> {
         if (reverseRefsBuilt) return;
@@ -70,8 +74,43 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
     const server = new Server(
         { name: NAME, version: VERSION },
-        { capabilities: { tools: {} } }
+        { capabilities: { tools: {}, sampling: {} } }
     );
+
+    // Phase 20: SamplingClient adapter — lazy, checks client capabilities at call time
+    const lazySamplingClient: import('@atlasmemory/core').SamplingClient = {
+        canSample: () => {
+            try {
+                return !!(server as any)._clientCapabilities?.sampling;
+            } catch { return false; }
+        },
+        requestCompletion: async (prompt: string, maxTokens: number) => {
+            const { CreateMessageRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
+            const result = await server.request(CreateMessageRequestSchema, {
+                messages: [{ role: 'user', content: { type: 'text', text: prompt } }],
+                maxTokens,
+            });
+            if (result.content.type === 'text') return result.content.text;
+            return '';
+        },
+    };
+
+    const enrichmentCoordinator = new EnrichmentCoordinator(store, lazySamplingClient);
+    const proactiveBuilder = new ProactiveResponseBuilder({
+        store, codeHealth: codeHealthAnalyzer, enrichmentCoordinator,
+        impactAnalyzer, prefetchEngine,
+    });
+
+    async function ensureCodeHealth(): Promise<void> {
+        if (codeHealthAnalyzed) return;
+        try {
+            await codeHealthAnalyzer.analyzeRepo();
+            codeHealthAnalyzed = true;
+        } catch (e) {
+            process.stderr.write(`[atlasmemory] Code health analysis skipped: ${e}\n`);
+            codeHealthAnalyzed = true;
+        }
+    }
 
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
         tools: [
@@ -398,6 +437,17 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     },
                 },
             },
+            {
+                name: 'enrich_files',
+                description: 'Enrich files with AI-generated semantic tags and intent cards (Level3). Improves concept-level search. Requires MCP sampling support.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        file_paths: { type: 'array', items: { type: 'string' }, description: 'File paths to enrich (default: auto-select unenriched files)' },
+                        limit: { type: 'number', description: 'Max files to enrich (default: 10)' },
+                    },
+                },
+            },
         ],
     }));
 
@@ -407,6 +457,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         switch (request.params.name) {
             case 'search_repo': {
                 await ensureIndexed();
+                await ensureCodeHealth();
                 const query = String(args.query);
                 const results = searchService.search(query);
 
@@ -431,13 +482,22 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const responseText = JSON.stringify(results, null, 2);
                 budgetTracker.trackUsage(sessionId, 'search_repo', responseText);
 
-                return { content: [{ type: 'text', text: responseText }] };
+                // Phase 20: Proactive intelligence
+                const intelligenceText = proactiveBuilder.format(resultFileIds);
+
+                // Fire-and-forget: async enrichment for unenriched result files
+                if (enrichmentCoordinator.canSample()) {
+                    enrichmentCoordinator.enrichIfNeeded(resultFileIds).catch(() => {});
+                }
+
+                return { content: [{ type: 'text', text: responseText + intelligenceText }] };
             }
 
             case 'index_repo': {
                 const repoPath = String(args.path);
                 const result = await autoIndex(store, repoPath);
                 reverseRefsBuilt = false;
+                codeHealthAnalyzed = false;
                 return {
                     content: [{
                         type: 'text',
@@ -794,7 +854,11 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const hotPaths = sessionLearner.formatHotPaths();
                 const enhanced = hotPaths ? result.text + '\n\n' + hotPaths : result.text;
 
-                return { content: [{ type: 'text', text: enhanced }] };
+                await ensureCodeHealth();
+                const riskySummary = codeHealthAnalyzer.getRiskySummary();
+                const enrichmentInvite = enrichmentCoordinator.getEnrichmentInvitation();
+                const fullEnhanced = enhanced + (riskySummary ? '\n\n' + riskySummary : '') + (enrichmentInvite ? '\n\n' + enrichmentInvite : '');
+                return { content: [{ type: 'text', text: fullEnhanced }] };
             }
 
             case 'session_bootstrap': {
@@ -982,6 +1046,28 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 }
 
                 return { content: [{ type: 'text', text: response }] };
+            }
+
+            case 'enrich_files': {
+                await ensureIndexed();
+                const limit = Number(args.limit || 10);
+
+                if (!enrichmentCoordinator.canSample()) {
+                    return { content: [{ type: 'text', text: 'Sampling not available. This tool requires an MCP client that supports sampling (e.g., Claude Desktop with sampling enabled).' }], isError: true };
+                }
+
+                if (args.file_paths && Array.isArray(args.file_paths)) {
+                    const fileIds = (args.file_paths as string[])
+                        .map(p => store.getFileId(path.resolve(String(p))))
+                        .filter(Boolean) as string[];
+                    await enrichmentCoordinator.enrichIfNeeded(fileIds);
+                    const coverage = enrichmentCoordinator.getEnrichmentCoverage();
+                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, enriched: fileIds.length, coverage }, null, 2) }] };
+                }
+
+                const report = await enrichmentCoordinator.enrichBatch(limit);
+                const coverage = enrichmentCoordinator.getEnrichmentCoverage();
+                return { content: [{ type: 'text', text: JSON.stringify({ ok: true, ...report, coverage }, null, 2) }] };
             }
 
             default:
