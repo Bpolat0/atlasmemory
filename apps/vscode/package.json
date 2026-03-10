@@ -27,7 +27,6 @@
         "workspaceContains:package.json"
     ],
     "main": "./dist/extension.js",
-    "icon": "media/icon.png",
     "repository": {
         "type": "git",
         "url": "https://github.com/Bpolat0/atlasmemory"
@@ -72,7 +71,7 @@
                 {
                     "id": "atlasmemory",
                     "title": "AtlasMemory",
-                    "icon": "$(brain)"
+                    "icon": "media/atlas-icon.svg"
                 }
             ]
         },

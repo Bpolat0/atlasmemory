@@ -1,7 +1,29 @@
 import * as vscode from 'vscode';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+
+function findNodeBinary(): string {
+    // process.execPath in VS Code returns Electron, not Node.js
+    // We need to find the real system Node.js
+    const isWindows = process.platform === 'win32';
+    const cmd = isWindows ? 'where' : 'which';
+    try {
+        const result = execFileSync(cmd, ['node'], { encoding: 'utf-8', timeout: 5000 });
+        const nodePath = result.trim().split('\n')[0].trim();
+        if (nodePath && fs.existsSync(nodePath)) return nodePath;
+    } catch { }
+    // Fallback: common paths
+    const candidates = isWindows
+        ? ['C:\\Program Files\\nodejs\\node.exe', path.join(process.env.LOCALAPPDATA || '', 'fnm_multishells', 'node.exe')]
+        : ['/usr/local/bin/node', '/usr/bin/node'];
+    for (const c of candidates) {
+        if (fs.existsSync(c)) return c;
+    }
+    return 'node'; // hope it's on PATH
+}
+
+const NODE_BINARY = findNodeBinary();
 
 export interface AtlasStatus {
     version: string;
@@ -74,7 +96,7 @@ export class AtlasClient {
             let cmdArgs: string[];
 
             if (binary.endsWith('.js')) {
-                cmd = process.execPath; // node
+                cmd = NODE_BINARY;
                 cmdArgs = [binary, ...args];
             } else {
                 cmd = binary;
@@ -116,6 +138,10 @@ export class AtlasClient {
 
     async generate(format: string = 'all'): Promise<string> {
         return this.run(['generate', '--format', format]);
+    }
+
+    async generateForce(format: string = 'all'): Promise<string> {
+        return this.run(['generate', '--format', format, '--force']);
     }
 
     async doctor(): Promise<string> {

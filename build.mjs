@@ -39,6 +39,10 @@ const result = await esbuild.build({
         'tree-sitter-typescript',
         'tree-sitter-javascript',
         'tree-sitter-python',
+        'tree-sitter-go',
+        'tree-sitter-rust',
+        'tree-sitter-java',
+        'tree-sitter-c-sharp',
         // CJS dependencies
         'commander',
         // MCP SDK

@@ -47,3 +47,127 @@ export const PYTHON_QUERIES = `
     function: (attribute
         attribute: (identifier) @call_name)) @call
 `;
+
+export const GO_QUERIES = `
+  (function_declaration
+    name: (identifier) @name
+    parameters: (parameter_list) @params
+    body: (block) @body) @function
+
+  (method_declaration
+    name: (field_identifier) @name
+    parameters: (parameter_list) @params
+    body: (block) @body) @method
+
+  (type_declaration
+    (type_spec
+      name: (type_identifier) @name
+      type: (struct_type) @body)) @class
+
+  (type_declaration
+    (type_spec
+      name: (type_identifier) @name
+      type: (interface_type) @body)) @interface
+
+  (import_declaration
+    (import_spec
+      path: (interpreted_string_literal) @import_source)) @import
+
+  (call_expression
+    function: (identifier) @call_name) @call
+
+  (call_expression
+    function: (selector_expression
+      field: (field_identifier) @call_name)) @call
+`;
+
+export const RUST_QUERIES = `
+  (function_item
+    name: (identifier) @name
+    parameters: (parameters) @params
+    body: (block) @body) @function
+
+  (impl_item
+    type: (type_identifier) @name
+    body: (declaration_list) @body) @class
+
+  (struct_item
+    name: (type_identifier) @name
+    body: (field_declaration_list) @body) @class
+
+  (trait_item
+    name: (type_identifier) @name
+    body: (declaration_list) @body) @interface
+
+  (enum_item
+    name: (type_identifier) @name
+    body: (enum_variant_list) @body) @type
+
+  (use_declaration
+    argument: (scoped_identifier) @import_source) @import
+
+  (call_expression
+    function: (identifier) @call_name) @call
+
+  (call_expression
+    function: (field_expression
+      field: (field_identifier) @call_name)) @call
+`;
+
+export const JAVA_QUERIES = `
+  (method_declaration
+    name: (identifier) @name
+    parameters: (formal_parameters) @params
+    body: (block) @body) @method
+
+  (class_declaration
+    name: (identifier) @name
+    body: (class_body) @body) @class
+
+  (interface_declaration
+    name: (identifier) @name
+    body: (interface_body) @body) @interface
+
+  (enum_declaration
+    name: (identifier) @name
+    body: (enum_body) @body) @type
+
+  (import_declaration
+    (scoped_identifier) @import_source) @import
+
+  (method_invocation
+    name: (identifier) @call_name) @call
+`;
+
+export const CSHARP_QUERIES = `
+  (method_declaration
+    name: (identifier) @name
+    parameters: (parameter_list) @params
+    body: (block) @body) @method
+
+  (class_declaration
+    name: (identifier) @name
+    body: (declaration_list) @body) @class
+
+  (interface_declaration
+    name: (identifier) @name
+    body: (declaration_list) @body) @interface
+
+  (struct_declaration
+    name: (identifier) @name
+    body: (declaration_list) @body) @class
+
+  (enum_declaration
+    name: (identifier) @name
+    body: (enum_member_declaration_list) @body) @type
+
+  (using_directive
+    (qualified_name) @import_source) @import
+
+  (invocation_expression
+    function: (identifier) @call_name) @call
+
+  (invocation_expression
+    function: (member_access_expression
+      name: (identifier) @call_name)) @call
+`;

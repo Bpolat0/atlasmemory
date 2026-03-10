@@ -11,7 +11,31 @@ const EXCLUDED_DIRS = new Set([
 ]);
 
 const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/];
-const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py']);
+const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.cs']);
+
+function loadIgnorePatterns(rootDir: string): Set<string> {
+    const ignorePath = path.join(rootDir, '.atlasignore');
+    const patterns = new Set<string>();
+    if (fs.existsSync(ignorePath)) {
+        const content = fs.readFileSync(ignorePath, 'utf-8');
+        for (const line of content.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#')) {
+                patterns.add(trimmed);
+            }
+        }
+    }
+    return patterns;
+}
+
+function shouldIgnore(relPath: string, ignorePatterns: Set<string>): boolean {
+    const normalized = relPath.replace(/\\/g, '/');
+    for (const pattern of ignorePatterns) {
+        if (normalized.startsWith(pattern + '/') || normalized === pattern) return true;
+        if (pattern.startsWith('*') && normalized.endsWith(pattern.slice(1))) return true;
+    }
+    return false;
+}
 
 export interface AutoIndexOptions {
     onFile?: (path: string) => void;
@@ -26,6 +50,7 @@ export async function autoIndex(
     const indexer = new Indexer();
     const generator = new CardGenerator();
     const flowGenerator = new FlowGenerator(store);
+    const ignorePatterns = loadIgnorePatterns(rootDir);
     let fileCount = 0;
     let symbolCount = 0;
     let skipped = 0;
@@ -54,11 +79,16 @@ export async function autoIndex(
                 if (EXCLUDED_DIRS.has(entry.name)) continue;
                 const lower = fullPath.replace(/\\/g, '/').toLowerCase();
                 if (lower.includes('/synth-') || lower.includes('/reports/')) continue;
+                const relDir = path.relative(rootDir, fullPath);
+                if (shouldIgnore(relDir, ignorePatterns)) continue;
                 await walk(fullPath);
             } else if (entry.isFile()) {
                 const ext = path.extname(entry.name).toLowerCase();
                 if (!CODE_EXTENSIONS.has(ext)) continue;
                 if (EXCLUDED_PATTERNS.some(p => p.test(entry.name))) continue;
+
+                const relPath = path.relative(rootDir, fullPath);
+                if (shouldIgnore(relPath, ignorePatterns)) continue;
 
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 const contentHash = crypto.createHash('sha256').update(content).digest('hex');
@@ -71,7 +101,11 @@ export async function autoIndex(
 
                 opts?.onFile?.(fullPath);
 
-                const language = ext.startsWith('.ts') ? 'ts' : ext.startsWith('.js') ? 'js' : 'py';
+                const langMap: Record<string, string> = {
+                    '.ts': 'ts', '.tsx': 'ts', '.js': 'js', '.jsx': 'js',
+                    '.py': 'py', '.go': 'go', '.rs': 'rs', '.java': 'java', '.cs': 'cs'
+                };
+                const language = langMap[ext] || ext.slice(1);
                 const loc = content.split('\n').length;
 
                 const { symbols, anchors, imports, refs } = indexer.parse(fullPath, content);

@@ -1,8 +1,10 @@
 import Parser from 'tree-sitter';
 import TypeScript from 'tree-sitter-typescript';
 import Python from 'tree-sitter-python';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 // @ts-ignore
-import { TS_QUERIES, PYTHON_QUERIES } from './queries.js';
+import { TS_QUERIES, PYTHON_QUERIES, GO_QUERIES, RUST_QUERIES, JAVA_QUERIES, CSHARP_QUERIES } from './queries.js';
 import { createAnchor } from './utils.js';
 import type { CodeSymbol } from '@atlasmemory/core';
 import crypto from 'crypto';
@@ -25,6 +27,38 @@ export class Indexer {
         pyParser.setLanguage(Python);
         this.parsers['py'] = pyParser;
         this.queries['py'] = new Parser.Query(Python, PYTHON_QUERIES);
+
+        try {
+            const Go = require('tree-sitter-go');
+            const goParser = new Parser();
+            goParser.setLanguage(Go);
+            this.parsers['go'] = goParser;
+            this.queries['go'] = new Parser.Query(Go, GO_QUERIES);
+        } catch { /* tree-sitter-go not installed */ }
+
+        try {
+            const Rust = require('tree-sitter-rust');
+            const rsParser = new Parser();
+            rsParser.setLanguage(Rust);
+            this.parsers['rs'] = rsParser;
+            this.queries['rs'] = new Parser.Query(Rust, RUST_QUERIES);
+        } catch { /* tree-sitter-rust not installed */ }
+
+        try {
+            const Java = require('tree-sitter-java');
+            const javaParser = new Parser();
+            javaParser.setLanguage(Java);
+            this.parsers['java'] = javaParser;
+            this.queries['java'] = new Parser.Query(Java, JAVA_QUERIES);
+        } catch { /* tree-sitter-java not installed */ }
+
+        try {
+            const CSharp = require('tree-sitter-c-sharp');
+            const csParser = new Parser();
+            csParser.setLanguage(CSharp);
+            this.parsers['cs'] = csParser;
+            this.queries['cs'] = new Parser.Query(CSharp, CSHARP_QUERIES);
+        } catch { /* tree-sitter-c-sharp not installed */ }
     }
 
     parse(filePath: string, content: string): { symbols: CodeSymbol[], anchors: import('@atlasmemory/core').Anchor[], imports: import('@atlasmemory/core').Import[], refs: import('@atlasmemory/core').CodeRef[] } {

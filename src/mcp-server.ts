@@ -139,8 +139,39 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 },
             },
             {
+                name: 'build_context',
+                description: 'Build context pack for AI. Modes: "task" (proof-backed context for objective), "project" (compact bootstrap), "delta" (changes since last), "session" (full session bootstrap). Primary tool for getting codebase context.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        mode: { type: 'string', enum: ['task', 'project', 'delta', 'session'], description: 'task=objective-driven, project=overview, delta=changes, session=full bootstrap' },
+                        objective: { type: 'string', description: 'What you are trying to accomplish (required for task mode)' },
+                        budget: { type: 'number', description: 'Token budget (default: 8000 for task, 1500 for project, 800 for delta)' },
+                        since: { type: 'string', description: 'For delta: "last", git SHA, or timestamp' },
+                        sessionId: { type: 'string', description: 'Session ID for continuity' },
+                        proof: { type: 'string', enum: ['strict', 'warn', 'off'], description: 'Proof enforcement (default: strict)' },
+                        format: { type: 'string', enum: ['capsule', 'json'], description: 'Output format (default: capsule)' },
+                    },
+                    required: ['mode'],
+                },
+            },
+            {
+                name: 'prove',
+                description: 'Prove one or more claims with evidence from the codebase. Every claim is linked to specific code locations with line ranges and snippet hashes.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        claims: { description: 'Single claim string or array of {text, scope} objects' },
+                        scope: { type: 'string', description: 'File path to scope search (single claim)' },
+                        maxEvidence: { type: 'number', description: 'Max evidence items per claim (default: 5)' },
+                        proofMode: { type: 'string', enum: ['strict', 'warn', 'off'] },
+                    },
+                    required: ['claims'],
+                },
+            },
+            {
                 name: 'build_task_pack',
-                description: 'Build a proof-backed context pack for a given objective.',
+                description: '[Deprecated: use build_context] Build a proof-backed context pack for a given objective.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -165,7 +196,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'bootpack',
-                description: 'Generate compact project bootstrap capsule.',
+                description: '[Deprecated: use build_context] Generate compact project bootstrap capsule.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -178,7 +209,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'deltapack',
-                description: 'Generate change-only capsule since a point in time.',
+                description: '[Deprecated: use build_context] Generate change-only capsule since a point in time.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -192,7 +223,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'prove_claim',
-                description: 'Find evidence anchors for a claim.',
+                description: '[Deprecated: use prove] Find evidence anchors for a claim.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -208,7 +239,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'prove_claims',
-                description: 'Batch prove multiple claims with dedup and budgeting.',
+                description: '[Deprecated: use prove] Batch prove multiple claims with dedup and budgeting.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -243,7 +274,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'session_bootstrap',
-                description: 'Bootstrap session context (fresh or resume mode).',
+                description: '[Deprecated: use build_context] Bootstrap session context (fresh or resume mode).',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -266,6 +297,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                         format: { type: 'string', enum: ['claude', 'cursor', 'copilot', 'all'], description: 'Output format (default: claude)' },
                         stdout: { type: 'boolean', description: 'Return content instead of writing files (default: true)' },
                         output: { type: 'string', description: 'File path to write (single format only)' },
+                        force: { type: 'boolean', description: 'Overwrite existing files even if hand-written (default: false)' },
                     },
                 },
             },
@@ -464,6 +496,99 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 return { content: [{ type: 'text', text: JSON.stringify(stats, null, 2) }] };
             }
 
+            case 'build_context': {
+                await ensureIndexed();
+                const bcMode = args.mode as string;
+                switch (bcMode) {
+                    case 'task': {
+                        if (!args.objective) return { content: [{ type: 'text', text: 'Error: "objective" required for task mode' }] };
+                        const bcObjective = String(args.objective);
+                        const bcBudget = Number(args.budget || 8000);
+                        const bcProof = (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string;
+                        const bcScoredResults = searchService.search(bcObjective, 20);
+                        const bcFileIds = bcScoredResults.map(r => r.file.id);
+                        const bcPack = taskPackBuilder.build(bcObjective, bcFileIds, bcBudget, { proof: bcProof });
+                        const bcPackHash = sha256(bcPack);
+                        contractService.createSnapshot({ sessionId: args.sessionId ? String(args.sessionId) : undefined, objective: bcObjective, taskpackHash: bcPackHash, proofMode: bcProof });
+                        return { content: [{ type: 'text', text: bcPack }] };
+                    }
+                    case 'project': {
+                        const bpResult = bootPackBuilder.buildBootPack({
+                            budget: Number(args.budget || 1500),
+                            format: (args.format === 'json' ? 'json' : 'capsule') as 'capsule' | 'json',
+                            compress: 'on',
+                            proof: (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string,
+                        });
+                        return { content: [{ type: 'text', text: bpResult.text }] };
+                    }
+                    case 'delta': {
+                        const dpResult = bootPackBuilder.buildDeltaPack({
+                            since: String(args.since || 'last'),
+                            budget: Number(args.budget || 800),
+                            format: (args.format === 'json' ? 'json' : 'capsule') as 'capsule' | 'json',
+                            sessionId: args.sessionId ? String(args.sessionId) : undefined,
+                            proof: (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'warn') as string,
+                        });
+                        return { content: [{ type: 'text', text: dpResult.text }] };
+                    }
+                    case 'session': {
+                        const sbMode = (args.sessionId ? 'resume' : 'fresh') as 'fresh' | 'resume';
+                        const sbSessionId = args.sessionId ? String(args.sessionId) : undefined;
+                        const sbBootBudget = Number(args.budget || 1500);
+                        const sbFormat = (args.format === 'json' ? 'json' : 'capsule') as 'capsule' | 'json';
+
+                        const sbMerged = bootPackBuilder.buildSessionBootstrap({
+                            mode: sbMode, sessionId: sbSessionId, bootBudget: sbBootBudget, deltaBudget: 800,
+                            format: sbFormat, compress: true,
+                        });
+
+                        const sbBootResult = bootPackBuilder.buildBootPack({ budget: sbBootBudget, format: 'capsule', compress: 'on', proof: 'strict' });
+                        const sbBootpackHash = sha256(sbBootResult.text);
+                        const sbDbSig = store.getDbSignature(process.cwd());
+                        const sbGitHead = contractService.getGitHead();
+
+                        const { contractHash: sbContractHash } = contractService.createSnapshot({
+                            sessionId: sbSessionId, bootpackHash: sbBootpackHash, proofMode: 'strict', minDbCoverage: 0.8, dbSig: sbDbSig, gitHead: sbGitHead,
+                        });
+
+                        if (sbSessionId) store.setState('last_bootstrap_at', new Date().toISOString(), sbSessionId);
+                        else store.setState('last_bootstrap_at', new Date().toISOString());
+
+                        const sbEnrichableCards = bootPackBuilder.countEnrichableCards();
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: JSON.stringify({ mode: sbMode, merged: sbMerged.text, contractHash: sbContractHash, dbSig: sbDbSig, gitHead: sbGitHead, enrichableCards: sbEnrichableCards }, null, 2),
+                            }],
+                        };
+                    }
+                    default:
+                        return { content: [{ type: 'text', text: `Unknown mode: ${bcMode}. Use: task, project, delta, session` }] };
+                }
+            }
+
+            case 'prove': {
+                await ensureIndexed();
+                const proveClaims = args.claims;
+                if (typeof proveClaims === 'string') {
+                    const proveResult = bootPackBuilder.proveClaim(proveClaims, args.scope ? String(args.scope) : undefined, Number(args.maxEvidence || 5), {
+                        proofMode: (['strict', 'warn', 'off'].includes(String(args.proofMode)) ? args.proofMode : 'strict') as string,
+                        proofBudget: 2500,
+                    });
+                    return { content: [{ type: 'text', text: JSON.stringify(proveResult, null, 2) }] };
+                } else if (Array.isArray(proveClaims)) {
+                    const mappedClaims = proveClaims
+                        .map((item: any) => ({ text: String(item?.text || item), scopePath: item?.scope ? String(item.scope) : undefined }))
+                        .filter((item: any) => item.text.trim().length > 0);
+                    const proveResults = bootPackBuilder.proveClaims(mappedClaims, Number(args.maxEvidence || 5), {
+                        proofMode: (['strict', 'warn', 'off'].includes(String(args.proofMode)) ? args.proofMode : 'strict') as string,
+                        proofBudget: 2500,
+                    });
+                    return { content: [{ type: 'text', text: JSON.stringify(proveResults, null, 2) }] };
+                }
+                return { content: [{ type: 'text', text: 'Error: claims must be a string or array' }] };
+            }
+
             case 'build_task_pack': {
                 await ensureIndexed();
                 const objective = String(args.objective || '');
@@ -586,7 +711,8 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const { generateAll } = await import('./generate-claude-md.js');
                 const rootDir = (await import('./auto-index.js')).detectProjectRoot(process.cwd());
                 const format = (['claude', 'cursor', 'copilot', 'all'].includes(String(args.format)) ? args.format : 'claude') as string;
-                const result = generateAll(store, { rootDir, format: format as any });
+                const force = args.force === true;
+                const result = generateAll(store, { rootDir, format: format as any, force });
 
                 if (args.output && result.files.length === 1) {
                     const outputPath = path.resolve(String(args.output));
@@ -628,6 +754,13 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     providedContractHash: args.providedContractHash ? String(args.providedContractHash) : undefined,
                     enforce,
                 });
+                // Add recommended action to help AI agents
+                if (contract && typeof contract === 'object') {
+                    const contractAny = contract as any;
+                    if (contractAny.shouldBlock || contractAny.needsBootstrap) {
+                        contractAny.recommendedAction = 'Call build_context({ mode: "session" }) to resync state';
+                    }
+                }
                 return { content: [{ type: 'text', text: JSON.stringify(contract, null, 2) }] };
             }
 

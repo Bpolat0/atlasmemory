@@ -9,7 +9,7 @@ Monorepo (npm workspaces) with 6 packages + 3 apps:
 ```
 packages/core       → Shared types (Anchor, CodeSymbol, FileCard, FlowCard)
 packages/store      → SQLite via better-sqlite3, FTS5 search, all DB ops
-packages/indexer    → Tree-sitter parsing (TS/JS/Python), symbol extraction
+packages/indexer    → Tree-sitter parsing (TS/JS/Python/Go/Rust/Java/C#)
 packages/retrieval  → Multi-stage search (FTS → Path → Folder → Graph)
 packages/summarizer → Card generation (deterministic + optional LLM)
 packages/taskpack   → Token-budgeted context packs, proof system, contracts
@@ -50,10 +50,10 @@ npm run selftest:agent   # Agent self-test validation
 - **Language:** TypeScript (ES2022, NodeNext modules, strict mode)
 - **Runtime:** Node.js v18+
 - **DB:** SQLite via better-sqlite3, FTS5 enabled
-- **Parser:** Tree-sitter (TS, JS, Python grammars)
+- **Parser:** Tree-sitter (TS, JS, Python, Go, Rust, Java, C# — 7 languages)
 - **MCP:** @modelcontextprotocol/sdk
 - **CLI:** Commander.js
-- **Build:** tsc (no bundler)
+- **Build:** tsc + esbuild → dist/atlasmemory.js (~200KB bundle)
 
 ## Conventions
 - ESM modules throughout (`"type": "module"` in all package.json)
@@ -90,7 +90,9 @@ Files → [Indexer/Tree-sitter] → Symbols + Anchors + Imports + Refs
 - `fts_files`, `fts_symbols` — FTS5 virtual tables
 
 ## MCP Tools
-`search_repo`, `index_file`, `index_repo`, `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `refresh_cards_for_changed_files`, `build_task_pack`, `auto_refresh`, `bootpack`, `deltapack`, `handshake`, `session_bootstrap`, `prove_claim`, `prove_claims`, `contract_show`, `contract_check`, `contract_ack`
+Primary: `search_repo`, `build_context`, `prove`, `index_repo`, `index_file`, `generate_claude_md`, `ai_readiness`, `handshake`, `get_context_contract`, `acknowledge_context`
+Legacy (deprecated): `build_task_pack`, `bootpack`, `deltapack`, `session_bootstrap`, `prove_claim`, `prove_claims`
+Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `refresh_cards_for_changed_files`, `auto_refresh`
 
 ## Evaluation
 - **synth-100/500:** Synthetic repos with known ground truth
@@ -99,4 +101,4 @@ Files → [Indexer/Tree-sitter] → Symbols + Anchors + Imports + Refs
 - Reports written to `apps/eval/reports/<timestamp>/`
 
 ## Current Status
-Phases 1-13.4 complete. See `project_handoff.md` for full phase history.
+Phases 1-18 complete. Phase 18: Revolution — multi-language (7 langs), MCP consolidation, overwrite protection, .atlasignore, demo command, README rewrite. See `project_handoff.md` for full history.

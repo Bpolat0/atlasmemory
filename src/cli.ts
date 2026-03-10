@@ -27,9 +27,48 @@ function getStore(dbPath?: string): Store {
 export function registerCliCommands(program: Command): void {
     program.command('init')
         .description('Initialize AtlasMemory in the current directory')
-        .action(() => {
+        .action(async () => {
+            const cwd = process.cwd();
+            const atlasDir = path.join(cwd, '.atlas');
+
+            if (fs.existsSync(path.join(atlasDir, 'atlas.db'))) {
+                console.log('AtlasMemory is already initialized in this directory.');
+                const s = getStore();
+                const readiness = computeAiReadiness(s);
+                console.log(`AI Readiness: ${renderReadinessBar(readiness.overall)}`);
+                return;
+            }
+
+            console.log('Initializing AtlasMemory...\n');
             getStore();
-            console.log('Initialized .atlas directory');
+            console.log('Created .atlas/atlas.db\n');
+
+            console.log('Indexing project...');
+            const s = getStore();
+            const result = await autoIndex(s, cwd, { incremental: true });
+            console.log(`Indexed ${result.files} files, ${result.symbols} symbols\n`);
+
+            const readiness = computeAiReadiness(s);
+            console.log(`AI Readiness: ${renderReadinessBar(readiness.overall)}\n`);
+
+            const cwdUnix = cwd.replace(/\\/g, '/');
+            console.log('Setup for your AI tool:\n');
+            console.log('  Claude Desktop / Claude Code:');
+            console.log('  Add to claude_desktop_config.json:');
+            console.log(`  { "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"], "cwd": "${cwdUnix}" } } }\n`);
+            console.log('  Cursor:');
+            console.log('  Add to .cursor/mcp.json:');
+            console.log(`  { "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"], "cwd": "${cwdUnix}" } } }\n`);
+            console.log('  Generate CLAUDE.md:  atlasmemory generate');
+            console.log('  Add to .gitignore:   .atlas/\n');
+
+            const gitignorePath = path.join(cwd, '.gitignore');
+            if (fs.existsSync(gitignorePath)) {
+                const content = fs.readFileSync(gitignorePath, 'utf-8');
+                if (!content.includes('.atlas')) {
+                    console.log('Tip: Add ".atlas/" to your .gitignore');
+                }
+            }
         });
 
     program.command('index [dir]')
@@ -51,15 +90,20 @@ export function registerCliCommands(program: Command): void {
             }
 
             console.log(`\nAtlasMemory - Indexing ${rootDir}\n`);
-            let fileCounter = 0;
+            let progressCount = 0;
             const startTime = Date.now();
             const result = await autoIndex(store, rootDir, {
                 onFile: () => {
-                    fileCounter++;
-                    if (fileCounter % 10 === 0) process.stdout.write(`\r  Indexing... ${fileCounter} files`);
+                    progressCount++;
+                    if (process.stderr.isTTY) {
+                        process.stderr.write(`\r  Indexing: ${progressCount} files...`);
+                    }
                 },
                 incremental: options.incremental,
             });
+            if (process.stderr.isTTY) {
+                process.stderr.write('\r' + ' '.repeat(40) + '\r');
+            }
             const elapsed = Date.now() - startTime;
 
             // Language breakdown
@@ -250,6 +294,7 @@ export function registerCliCommands(program: Command): void {
         .option('-o, --output <path>', 'Output file path (overrides default for single format)')
         .option('--format <type>', 'Output format: claude | cursor | copilot | all (default: claude)', 'claude')
         .option('--stdout', 'Print to stdout instead of writing file')
+        .option('--force', 'Overwrite existing files even if hand-written')
         .action((options) => {
             const store = getStore();
             const rootDir = detectProjectRoot(process.cwd());
@@ -260,7 +305,7 @@ export function registerCliCommands(program: Command): void {
             }
 
             const format = options.format as GenerateFormat;
-            const result = generateAll(store, { rootDir, format });
+            const result = generateAll(store, { rootDir, format, force: options.force });
 
             if (options.stdout) {
                 for (const file of result.files) {
@@ -286,6 +331,11 @@ export function registerCliCommands(program: Command): void {
             console.log(`  [OK] ${store.getFiles().length} files analyzed`);
             console.log(`  [OK] AI Readiness: ${result.readiness.overall}/100`);
             console.log('\n  Your project is now AI-ready.');
+            if (result.skipped && result.skipped.length > 0) {
+                console.log('\nSkipped (hand-written, use --force to overwrite):');
+                for (const s of result.skipped) console.log(`  ${s.path}`);
+            }
+
             if (format === 'all') {
                 console.log('  Claude, Cursor, and Copilot will all understand your codebase.\n');
             } else {
@@ -345,6 +395,34 @@ export function registerCliCommands(program: Command): void {
                     issues,
                 },
             }));
+        });
+
+    program.command('demo')
+        .description('Quick demo: index + search + show proof system')
+        .action(async () => {
+            const cwd = detectProjectRoot(process.cwd()) || process.cwd();
+            const s = getStore();
+            console.log('AtlasMemory Demo\n');
+            console.log('Step 1: Indexing current directory...');
+            const result = await autoIndex(s, cwd, { incremental: true });
+            console.log(`  Done: ${result.files} files, ${result.symbols} symbols\n`);
+            console.log('Step 2: Searching for "main entry"...');
+            const search = new SearchService(s);
+            const searchResults = search.search('main entry', 3);
+            if (searchResults.length > 0) {
+                for (const r of searchResults) console.log(`  ${r.file.path} (score: ${r.score})`);
+            } else {
+                console.log('  (no results for this query)');
+            }
+            console.log('\nStep 3: AI Readiness Score...');
+            const readiness = computeAiReadiness(s);
+            console.log(`  ${renderReadinessBar(readiness.overall)}`);
+            console.log('\nStep 4: Proof System (evidence anchors)...');
+            const anchors = s.db.prepare('SELECT a.*, f.path as file_path FROM anchors a JOIN files f ON a.file_id = f.id LIMIT 3').all() as any[];
+            if (anchors.length > 0) {
+                for (const a of anchors) console.log(`  ${a.file_path}:${a.start_line}-${a.end_line} [hash:${a.snippet_hash?.slice(0, 8)}]`);
+            }
+            console.log('\nAtlasMemory is ready! Try: atlasmemory search "authentication"');
         });
 
     program.command('doctor')
