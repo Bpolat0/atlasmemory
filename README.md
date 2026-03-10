@@ -20,6 +20,8 @@ AI coding agents hallucinate about your code. They lose context between sessions
 | Context window | Dump everything | **Token-budgeted** packs |
 | Dependencies | Cloud API keys | **Local-first**, zero config |
 | Languages | Varies | **11 languages** (TS/JS/Python/Go/Rust/Java/C#/C/C++/Ruby/PHP) |
+| Impact analysis | Manual | **Automatic** (reverse ref graph) |
+| Session memory | None | **Cross-session learning** + pattern extraction |
 
 ## 30-Second Setup
 
@@ -168,6 +170,10 @@ Your Codebase
 | `index_file` | Parse and index a single file |
 | `generate_claude_md` | Auto-generate CLAUDE.md / .cursorrules / copilot-instructions.md |
 | `ai_readiness` | Compute AI Readiness Score (0-100) |
+| `analyze_impact` | **Impact analysis** — who depends on this symbol/file? |
+| `smart_diff` | **Semantic git diff** — symbol-level changes + breaking change detection |
+| `remember` | **Conversation memory** — log decisions, constraints, insights |
+| `session_context` | **Session intelligence** — view accumulated context + related sessions |
 | `handshake` | Short operating instructions for AI agents |
 | `get_context_contract` | Check drift status with recommended actions |
 
@@ -192,8 +198,9 @@ atlasmemory (npm package)
 ├── packages/retrieval   — Multi-stage search (FTS → Path → Graph)
 ├── packages/summarizer  — Deterministic + LLM card generation
 ├── packages/taskpack    — Token budgeting, proof system, contracts
+├── packages/intelligence — Impact analysis, prefetch, diff, memory, learning
 ├── apps/vscode          — VS Code extension (status bar, dashboard, sidebar)
-└── dist/atlasmemory.js  — Single bundled binary (~200KB, esbuild)
+└── dist/atlasmemory.js  — Single bundled binary (~255KB, esbuild)
 ```
 
 ## Development

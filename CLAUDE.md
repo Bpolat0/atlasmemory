@@ -4,18 +4,19 @@
 Local-first code memory system that gives AI agents "infinite context." Indexes repos with Tree-sitter, generates evidence-backed summaries (FileCards), and packages optimized context windows (TaskPacks) within token budgets. Solves context explosion and LLM drift.
 
 ## Architecture
-Monorepo (npm workspaces) with 6 packages + 3 apps:
+Monorepo (npm workspaces) with 7 packages + 3 apps:
 
 ```
-packages/core       → Shared types (Anchor, CodeSymbol, FileCard, FlowCard)
-packages/store      → SQLite via better-sqlite3, FTS5 search, all DB ops
-packages/indexer    → Tree-sitter parsing (11 langs: TS/JS/Python/Go/Rust/Java/C#/C/C++/Ruby/PHP)
-packages/retrieval  → Multi-stage search (FTS → Path → Folder → Graph)
-packages/summarizer → Card generation (deterministic + optional LLM)
-packages/taskpack   → Token-budgeted context packs, proof system, contracts
-apps/cli            → `atlas` CLI (index, search, taskpack, bootpack, etc.)
-apps/mcp-server     → MCP protocol server exposing tools to AI agents
-apps/eval           → Eval harness (synth-100, synth-500, real-repo)
+packages/core         → Shared types (Anchor, CodeSymbol, FileCard, FlowCard, ImpactReport, etc.)
+packages/store        → SQLite via better-sqlite3, FTS5 search, all DB ops
+packages/indexer      → Tree-sitter parsing (11 langs: TS/JS/Python/Go/Rust/Java/C#/C/C++/Ruby/PHP)
+packages/retrieval    → Multi-stage search (FTS → Path → Folder → Graph)
+packages/summarizer   → Card generation (deterministic + optional LLM)
+packages/taskpack     → Token-budgeted context packs, proof system, contracts
+packages/intelligence → Intelligence layer (impact analysis, prefetch, diff, budget, memory, learning)
+apps/cli              → `atlas` CLI (index, search, taskpack, bootpack, etc.)
+apps/mcp-server       → MCP protocol server exposing tools to AI agents
+apps/eval             → Eval harness (synth-100, synth-500, real-repo)
 ```
 
 ## Key Files
@@ -28,6 +29,12 @@ apps/eval           → Eval harness (synth-100, synth-500, real-repo)
 - **TaskPack Builder:** `packages/taskpack/src/builder.ts`
 - **Proof System:** `packages/taskpack/src/proof.ts`
 - **Contract Service:** `packages/taskpack/src/contract.ts`
+- **Impact Analyzer:** `packages/intelligence/src/impact-analyzer.ts`
+- **Prefetch Engine:** `packages/intelligence/src/prefetch-engine.ts`
+- **Diff Enricher:** `packages/intelligence/src/diff-enricher.ts`
+- **Budget Tracker:** `packages/intelligence/src/budget-tracker.ts`
+- **Conversation Memory:** `packages/intelligence/src/conversation-memory.ts`
+- **Session Learner:** `packages/intelligence/src/session-learner.ts`
 - **CLI:** `apps/cli/src/index.ts`
 - **MCP Server:** `apps/mcp-server/src/index.ts`
 - **Design Doc (TR):** `memory.md`
@@ -77,9 +84,10 @@ npm run selftest:agent   # Agent self-test validation
 ```
 Files → [Indexer/Tree-sitter] → Symbols + Anchors + Imports + Refs
   → [Store/SQLite] → [CardGenerator] → FileCards + FlowCards
-  → [SearchService] → Ranked results
-  → [TaskPackBuilder] → Token-budgeted markdown
-  → [MCP/CLI] → LLM context
+  → [SearchService] → Ranked results (+ pattern boosts from SessionLearner)
+  → [TaskPackBuilder] → Token-budgeted markdown (+ prefetch suggestions)
+  → [Intelligence] → Impact analysis, smart diff, conversation memory
+  → [MCP/CLI] → LLM context (+ budget tracking)
   → [ContractService] → Drift detection
 ```
 
@@ -87,10 +95,13 @@ Files → [Indexer/Tree-sitter] → Symbols + Anchors + Imports + Refs
 - `files`, `symbols`, `imports`, `refs`, `anchors` — raw indexed data
 - `file_cards`, `symbol_cards`, `flow_cards`, `folder_cards`, `project_card` — summaries
 - `session_state`, `context_snapshots` — session tracking
+- `reverse_refs` — inverse ref index for impact analysis
+- `conversation_events`, `session_patterns`, `token_usage` — intelligence layer
 - `fts_files`, `fts_symbols` — FTS5 virtual tables
 
 ## MCP Tools
 Primary: `search_repo`, `build_context`, `prove`, `index_repo`, `index_file`, `generate_claude_md`, `ai_readiness`, `handshake`, `get_context_contract`, `acknowledge_context`
+Intelligence: `analyze_impact`, `smart_diff`, `remember`, `session_context`
 Legacy (deprecated): `build_task_pack`, `bootpack`, `deltapack`, `session_bootstrap`, `prove_claim`, `prove_claims`
 Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `refresh_cards_for_changed_files`, `auto_refresh`
 
@@ -101,4 +112,4 @@ Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `re
 - Reports written to `apps/eval/reports/<timestamp>/`
 
 ## Current Status
-Phases 1-18 complete. Phase 18: Revolution — multi-language (7 langs), MCP consolidation, overwrite protection, .atlasignore, demo command, README rewrite. See `project_handoff.md` for full history.
+Phases 1-19 complete. Phase 19: Intelligence Layer — impact analysis, predictive pre-fetch, smart diff, token budget tracking, conversation memory, cross-session learning. 4 new MCP tools, 4 new DB tables, 6 intelligence modules. See `project_handoff.md` for full history.
