@@ -13,7 +13,7 @@ packages/indexer      → Tree-sitter parsing (11 langs: TS/JS/Python/Go/Rust/Ja
 packages/retrieval    → Multi-stage search (FTS → Path → Folder → Graph)
 packages/summarizer   → Card generation (deterministic + optional LLM)
 packages/taskpack     → Token-budgeted context packs, proof system, contracts
-packages/intelligence → Intelligence layer (impact analysis, prefetch, diff, budget, memory, learning)
+packages/intelligence → Intelligence layer (impact, prefetch, diff, budget, memory, learning, code health, enrichment, proactive)
 apps/cli              → `atlas` CLI (index, search, taskpack, bootpack, etc.)
 apps/mcp-server       → MCP protocol server exposing tools to AI agents
 apps/eval             → Eval harness (synth-100, synth-500, real-repo)
@@ -35,6 +35,9 @@ apps/eval             → Eval harness (synth-100, synth-500, real-repo)
 - **Budget Tracker:** `packages/intelligence/src/budget-tracker.ts`
 - **Conversation Memory:** `packages/intelligence/src/conversation-memory.ts`
 - **Session Learner:** `packages/intelligence/src/session-learner.ts`
+- **Code Health:** `packages/intelligence/src/code-health.ts`
+- **Enrichment Coordinator:** `packages/intelligence/src/enrichment-coordinator.ts`
+- **Proactive Response:** `packages/intelligence/src/proactive-response.ts`
 - **CLI:** `apps/cli/src/index.ts`
 - **MCP Server:** `apps/mcp-server/src/index.ts`
 - **Design Doc (TR):** `memory.md`
@@ -60,7 +63,7 @@ npm run selftest:agent   # Agent self-test validation
 - **Parser:** Tree-sitter (TS, JS, Python, Go, Rust, Java, C#, C, C++, Ruby, PHP — 11 languages)
 - **MCP:** @modelcontextprotocol/sdk
 - **CLI:** Commander.js
-- **Build:** tsc + esbuild → dist/atlasmemory.js (~200KB bundle)
+- **Build:** tsc + esbuild → dist/atlasmemory.js (~278KB bundle)
 
 ## Conventions
 - ESM modules throughout (`"type": "module"` in all package.json)
@@ -97,11 +100,12 @@ Files → [Indexer/Tree-sitter] → Symbols + Anchors + Imports + Refs
 - `session_state`, `context_snapshots` — session tracking
 - `reverse_refs` — inverse ref index for impact analysis
 - `conversation_events`, `session_patterns`, `token_usage` — intelligence layer
-- `fts_files`, `fts_symbols` — FTS5 virtual tables
+- `fts_files`, `fts_symbols`, `fts_semantic_tags` — FTS5 virtual tables
+- `code_health` — git history health metrics (churn, breaks, coupling)
 
 ## MCP Tools
 Primary: `search_repo`, `build_context`, `prove`, `index_repo`, `index_file`, `generate_claude_md`, `ai_readiness`, `handshake`, `get_context_contract`, `acknowledge_context`
-Intelligence: `analyze_impact`, `smart_diff`, `remember`, `session_context`
+Intelligence: `analyze_impact`, `smart_diff`, `remember`, `session_context`, `enrich_files`
 Legacy (deprecated): `build_task_pack`, `bootpack`, `deltapack`, `session_bootstrap`, `prove_claim`, `prove_claims`
 Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `refresh_cards_for_changed_files`, `auto_refresh`
 
@@ -112,4 +116,4 @@ Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `re
 - Reports written to `apps/eval/reports/<timestamp>/`
 
 ## Current Status
-Phases 1-19 complete. Phase 19: Intelligence Layer — impact analysis, predictive pre-fetch, smart diff, token budget tracking, conversation memory, cross-session learning. 4 new MCP tools, 4 new DB tables, 6 intelligence modules. See `project_handoff.md` for full history.
+Phases 1-20 complete. Phase 20: Collaborative Intelligence — semantic tags (FTS5), MCP Sampling engine, Level3 intent cards, Code DNA (git health), proactive intelligence in every tool response. 1 new MCP tool (`enrich_files`), 2 new DB tables (`fts_semantic_tags`, `code_health`), 3 new intelligence modules, AI Readiness Score updated with conditional Semantic Coverage metric. See `project_handoff.md` for full history.
