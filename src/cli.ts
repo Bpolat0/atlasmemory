@@ -293,6 +293,60 @@ export function registerCliCommands(program: Command): void {
             }
         });
 
+    program.command('status')
+        .description('Output project status as JSON (for tooling/extensions)')
+        .option('--json', 'JSON output (default)', true)
+        .action(() => {
+            const store = getStore();
+            const readiness = computeAiReadiness(store);
+            const files = store.db.prepare('SELECT COUNT(*) as n FROM files').get() as { n: number };
+            const symbols = store.db.prepare('SELECT COUNT(*) as n FROM symbols').get() as { n: number };
+            const anchors = store.db.prepare('SELECT COUNT(*) as n FROM anchors').get() as { n: number };
+            const fileCards = store.db.prepare('SELECT COUNT(*) as n FROM file_cards').get() as { n: number };
+            const flowCards = store.db.prepare('SELECT COUNT(*) as n FROM flow_cards').get() as { n: number };
+            const imports = store.db.prepare('SELECT COUNT(*) as n FROM imports').get() as { n: number };
+            const refs = store.db.prepare('SELECT COUNT(*) as n FROM refs').get() as { n: number };
+            const lastIndex = store.getState('last_index_at');
+
+            let hasFtsStemmer = false;
+            try {
+                const ftsInfo = store.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='fts_files'").get() as { sql: string } | undefined;
+                hasFtsStemmer = !!ftsInfo?.sql?.includes('porter');
+            } catch { }
+
+            const issues: string[] = [];
+            if (files.n === 0) issues.push('No files indexed. Run: atlasmemory index .');
+            if (files.n > 0 && fileCards.n === 0) issues.push('Files indexed but no cards generated.');
+            if (!hasFtsStemmer) issues.push('FTS missing Porter stemmer. Re-index recommended.');
+
+            console.log(JSON.stringify({
+                version: '1.0.0',
+                database: path.resolve(process.env.ATLAS_DB_PATH || '.atlas/atlas.db'),
+                lastIndex: lastIndex || null,
+                readiness: {
+                    overall: readiness.overall,
+                    codeCoverage: readiness.codeCoverage,
+                    descriptionCoverage: readiness.descriptionCoverage,
+                    flowCoverage: readiness.flowCoverage,
+                    evidenceCoverage: readiness.evidenceCoverage,
+                },
+                stats: {
+                    files: files.n,
+                    symbols: symbols.n,
+                    anchors: anchors.n,
+                    fileCards: fileCards.n,
+                    flowCards: flowCards.n,
+                    imports: imports.n,
+                    refs: refs.n,
+                },
+                health: {
+                    status: issues.length === 0 ? 'HEALTHY' : 'ISSUES_FOUND',
+                    hasFtsStemmer,
+                    issues,
+                },
+            }));
+        });
+
     program.command('doctor')
         .description('Diagnose AtlasMemory setup and database health')
         .action(() => {

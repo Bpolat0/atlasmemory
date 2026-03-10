@@ -1,0 +1,137 @@
+{
+    "name": "atlasmemory-vscode",
+    "displayName": "AtlasMemory",
+    "description": "AI-powered code memory — proof-backed context, drift detection, and readiness scoring for your codebase",
+    "version": "0.1.0",
+    "publisher": "atlasmemory",
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Other",
+        "Machine Learning"
+    ],
+    "keywords": [
+        "ai",
+        "memory",
+        "context",
+        "mcp",
+        "claude",
+        "cursor",
+        "copilot",
+        "code-intelligence"
+    ],
+    "activationEvents": [
+        "workspaceContains:.atlas",
+        "workspaceContains:package.json"
+    ],
+    "main": "./dist/extension.js",
+    "icon": "media/icon.png",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Bpolat0/atlasmemory"
+    },
+    "contributes": {
+        "commands": [
+            {
+                "command": "atlasmemory.indexProject",
+                "title": "AtlasMemory: Index Project",
+                "icon": "$(database)"
+            },
+            {
+                "command": "atlasmemory.generateClaudeMd",
+                "title": "AtlasMemory: Generate CLAUDE.md"
+            },
+            {
+                "command": "atlasmemory.generateAll",
+                "title": "AtlasMemory: Generate All AI Configs",
+                "icon": "$(sparkle)"
+            },
+            {
+                "command": "atlasmemory.showDashboard",
+                "title": "AtlasMemory: Show Dashboard",
+                "icon": "$(pulse)"
+            },
+            {
+                "command": "atlasmemory.doctor",
+                "title": "AtlasMemory: Health Check (Doctor)"
+            },
+            {
+                "command": "atlasmemory.search",
+                "title": "AtlasMemory: Search Codebase"
+            },
+            {
+                "command": "atlasmemory.refresh",
+                "title": "AtlasMemory: Refresh Status",
+                "icon": "$(refresh)"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "atlasmemory",
+                    "title": "AtlasMemory",
+                    "icon": "$(brain)"
+                }
+            ]
+        },
+        "views": {
+            "atlasmemory": [
+                {
+                    "id": "atlasmemory.explorer",
+                    "name": "Atlas Explorer"
+                }
+            ]
+        },
+        "menus": {
+            "view/title": [
+                {
+                    "command": "atlasmemory.refresh",
+                    "when": "view == atlasmemory.explorer",
+                    "group": "navigation"
+                },
+                {
+                    "command": "atlasmemory.showDashboard",
+                    "when": "view == atlasmemory.explorer",
+                    "group": "navigation"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "AtlasMemory",
+            "properties": {
+                "atlasmemory.binaryPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Custom path to atlasmemory binary (auto-detected if empty)"
+                },
+                "atlasmemory.autoIndexOnSave": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically re-index files on save"
+                },
+                "atlasmemory.watchDebounceMs": {
+                    "type": "number",
+                    "default": 2000,
+                    "description": "Debounce delay for auto-index (ms)"
+                },
+                "atlasmemory.statusBarEnabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show AI Readiness score in status bar"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "build": "node esbuild.mjs",
+        "watch": "node esbuild.mjs --watch",
+        "package": "npx @vscode/vsce package"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.85.0",
+        "@types/node": "^20.0.0",
+        "esbuild": "^0.27.3"
+    }
+}
