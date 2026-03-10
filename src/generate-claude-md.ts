@@ -2,13 +2,21 @@ import { Store } from '@atlasmemory/store';
 import fs from 'fs';
 import path from 'path';
 
+export type GenerateFormat = 'claude' | 'cursor' | 'copilot' | 'all';
+
 export interface GenerateOptions {
     rootDir: string;
-    output?: string; // default: CLAUDE.md in rootDir
+    format?: GenerateFormat;
+    output?: string;
+}
+
+export interface GenerateResult {
+    files: { path: string; content: string }[];
+    readiness: AiReadinessScore;
 }
 
 export interface AiReadinessScore {
-    overall: number; // 0-100
+    overall: number;
     codeCoverage: number;
     descriptionCoverage: number;
     flowCoverage: number;
@@ -24,89 +32,38 @@ export interface AiReadinessScore {
     };
 }
 
-export function computeAiReadiness(store: Store): AiReadinessScore {
-    const files = store.getFiles();
-    const totalFiles = files.length;
+// Noise symbols that appear in every class — not informative
+const NOISE_SYMBOLS = new Set(['constructor', 'toString', 'valueOf', 'toJSON']);
 
-    const totalCards = (store.db.prepare('SELECT COUNT(*) as n FROM file_cards').get() as { n: number }).n;
-    const enrichedCards = totalCards - (store.db.prepare(
-        "SELECT COUNT(*) as n FROM file_cards WHERE card_level1 LIKE '%Awaiting AI enrichment%'"
-    ).get() as { n: number }).n;
+// --- Shared data collection ---
 
-    const flowCount = (store.db.prepare('SELECT COUNT(*) as n FROM flow_cards').get() as { n: number }).n;
-    const anchorCount = (store.db.prepare('SELECT COUNT(*) as n FROM anchors').get() as { n: number }).n;
-    const symbolCount = (store.db.prepare('SELECT COUNT(*) as n FROM symbols').get() as { n: number }).n;
-
-    // Code Coverage: are all discoverable files indexed?
-    const codeCoverage = totalFiles > 0 ? 100 : 0;
-
-    // Description Coverage: how many cards have AI-enriched descriptions?
-    const descriptionCoverage = totalCards > 0
-        ? Math.round((enrichedCards / totalCards) * 100)
-        : 0;
-
-    // Flow Coverage: are there meaningful call flows?
-    const filesWithFlows = new Set(
-        (store.db.prepare('SELECT DISTINCT file_id FROM flow_cards').all() as { file_id: string }[])
-            .map(r => r.file_id)
-    ).size;
-    const flowCoverage = totalFiles > 0
-        ? Math.min(100, Math.round((filesWithFlows / totalFiles) * 100))
-        : 0;
-
-    // Evidence Coverage: how many symbols have anchors?
-    const symbolsWithAnchors = (store.db.prepare(
-        'SELECT COUNT(DISTINCT s.id) as n FROM symbols s INNER JOIN anchors a ON s.file_id = a.file_id AND s.start_line = a.start_line AND s.end_line = a.end_line'
-    ).get() as { n: number }).n;
-    const evidenceCoverage = symbolCount > 0
-        ? Math.round((symbolsWithAnchors / symbolCount) * 100)
-        : 0;
-
-    // Weighted overall
-    const overall = Math.round(
-        codeCoverage * 0.25 +
-        descriptionCoverage * 0.30 +
-        flowCoverage * 0.20 +
-        evidenceCoverage * 0.25
-    );
-
-    return {
-        overall,
-        codeCoverage,
-        descriptionCoverage,
-        flowCoverage,
-        evidenceCoverage,
-        details: {
-            totalFiles,
-            indexedFiles: totalFiles,
-            enrichedCards,
-            totalCards,
-            flowCount,
-            anchorCount,
-            symbolCount,
-        }
-    };
+interface ProjectData {
+    projectName: string;
+    projectDesc: string;
+    languages: string;
+    topDirs: Array<[string, number]>;
+    dirSymbols: Map<string, string[]>;
+    keyFiles: Array<{ relPath: string; symbolCount: number; purpose: string }>;
+    commandLines: string[];
+    techStack: string[];
+    conventions: string[];
+    flowLines: string[];
+    readiness: AiReadinessScore;
 }
 
-export function generateClaudeMd(store: Store, options: GenerateOptions): string {
-    const { rootDir } = options;
+function collectProjectData(store: Store, rootDir: string): ProjectData {
     const files = store.getFiles();
-
-    // --- Project metadata from package.json ---
-    const pkgPath = path.join(rootDir, 'package.json');
-    let pkg: any = {};
-    try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')); } catch { }
-
+    const pkg = readPackageJson(rootDir);
     const projectName = pkg.name || path.basename(rootDir);
     const projectDesc = pkg.description || '';
 
-    // --- Filter files to project root only ---
+    // Filter to project root
     const projectFiles = files.filter(f => {
         const rel = path.relative(rootDir, f.path).replace(/\\/g, '/');
         return !rel.startsWith('..') && !path.isAbsolute(rel);
     });
 
-    // --- Detect languages ---
+    // Languages
     const langCounts = new Map<string, number>();
     for (const file of projectFiles) {
         const ext = path.extname(file.path).toLowerCase();
@@ -120,7 +77,7 @@ export function generateClaudeMd(store: Store, options: GenerateOptions): string
         .map(([lang, count]) => `${lang} (${count})`)
         .join(', ');
 
-    // --- Architecture: directory structure ---
+    // Architecture
     const dirCounts = new Map<string, number>();
     const dirSymbols = new Map<string, string[]>();
     for (const file of projectFiles) {
@@ -129,11 +86,10 @@ export function generateClaudeMd(store: Store, options: GenerateOptions): string
         const dir = parts.length > 2 ? parts.slice(0, 2).join('/') : (parts.length > 1 ? parts[0] : '.');
         dirCounts.set(dir, (dirCounts.get(dir) || 0) + 1);
 
-        // Collect top symbols per directory
         if (!dirSymbols.has(dir)) dirSymbols.set(dir, []);
         const syms = store.getSymbolsForFile(file.id);
         for (const sym of syms) {
-            if (sym.visibility === 'public' && dirSymbols.get(dir)!.length < 3) {
+            if (sym.visibility === 'public' && !NOISE_SYMBOLS.has(sym.name) && dirSymbols.get(dir)!.length < 3) {
                 dirSymbols.get(dir)!.push(sym.name);
             }
         }
@@ -142,8 +98,8 @@ export function generateClaudeMd(store: Store, options: GenerateOptions): string
         .sort((a, b) => b[1] - a[1])
         .slice(0, 12);
 
-    // --- Key files: highest symbol count ---
-    const fileSymbolCounts: { path: string; relPath: string; symbolCount: number; purpose: string }[] = [];
+    // Key files with smart purposes
+    const fileSymbolCounts: Array<{ relPath: string; symbolCount: number; purpose: string }> = [];
     for (const file of projectFiles) {
         const syms = store.getSymbolsForFile(file.id);
         const card = store.getFileCard(file.id);
@@ -152,7 +108,6 @@ export function generateClaudeMd(store: Store, options: GenerateOptions): string
             ? '' : rawPurpose;
         const relPath = path.relative(rootDir, file.path).replace(/\\/g, '/');
         fileSymbolCounts.push({
-            path: file.path,
             relPath,
             symbolCount: syms.length,
             purpose: purpose.length > 80 ? purpose.slice(0, 77) + '...' : purpose,
@@ -162,24 +117,21 @@ export function generateClaudeMd(store: Store, options: GenerateOptions): string
         .sort((a, b) => b.symbolCount - a.symbolCount)
         .slice(0, 15);
 
-    // --- Commands from package.json scripts ---
+    // Commands
     const scripts = pkg.scripts || {};
     const importantScripts = ['build', 'test', 'dev', 'start', 'lint', 'format', 'serve', 'deploy',
         'build:all', 'build:bundle', 'eval', 'eval:synth100', 'eval:real'];
     const commandLines: string[] = [];
     for (const key of importantScripts) {
-        if (scripts[key]) {
-            commandLines.push(`${key.padEnd(20)} # ${scripts[key]}`);
-        }
+        if (scripts[key]) commandLines.push(`${key.padEnd(20)} # ${scripts[key]}`);
     }
-    // Add any remaining scripts not in the important list
     for (const [key, val] of Object.entries(scripts)) {
         if (!importantScripts.includes(key) && commandLines.length < 20) {
             commandLines.push(`${key.padEnd(20)} # ${val}`);
         }
     }
 
-    // --- Tech stack from dependencies ---
+    // Tech stack
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
     const techStack: string[] = [languages];
     const techMap: Record<string, string> = {
@@ -198,104 +150,257 @@ export function generateClaudeMd(store: Store, options: GenerateOptions): string
         if (tech && !seenTech.has(tech)) { techStack.push(tech); seenTech.add(tech); }
     }
 
-    // --- Conventions detection ---
+    // Conventions
     const conventions: string[] = [];
-    if (pkg.type === 'module') conventions.push('ESM modules (`"type": "module"`)');
+    if (pkg.type === 'module') conventions.push('ESM modules ("type": "module")');
     if (pkg.workspaces) conventions.push('Monorepo (npm workspaces)');
     if (fs.existsSync(path.join(rootDir, 'tsconfig.json'))) conventions.push('TypeScript with tsconfig.json');
     if (fs.existsSync(path.join(rootDir, '.eslintrc.js')) || fs.existsSync(path.join(rootDir, '.eslintrc.json')) || fs.existsSync(path.join(rootDir, 'eslint.config.js'))) conventions.push('ESLint configured');
     if (fs.existsSync(path.join(rootDir, '.prettierrc')) || fs.existsSync(path.join(rootDir, '.prettierrc.json'))) conventions.push('Prettier configured');
     if (fs.existsSync(path.join(rootDir, 'Dockerfile'))) conventions.push('Docker containerized');
     if (fs.existsSync(path.join(rootDir, '.github/workflows'))) conventions.push('GitHub Actions CI/CD');
+    if (fs.existsSync(path.join(rootDir, '.atlas'))) conventions.push('AtlasMemory indexed (.atlas/atlas.db)');
 
-    // Detect DB path convention
-    if (fs.existsSync(path.join(rootDir, '.atlas'))) conventions.push('AtlasMemory DB at `.atlas/atlas.db`');
+    // Flows — prefer cross-file, skip self-recursive
+    const allFlows = store.getAllFlowCards();
+    const meaningfulFlows = allFlows
+        .filter(f => {
+            const parts = f.summary.split(' -> ');
+            // Skip self-recursive (A -> A)
+            if (parts.length === 2 && parts[0] === parts[1]) return false;
+            // Prefer 2-hop cross-file
+            return true;
+        })
+        .sort((a, b) => b.hopCount - a.hopCount)
+        .slice(0, 8);
+    const flowLines = meaningfulFlows.map(f => `${f.summary} (${f.hopCount}-hop)`);
 
-    // --- Flow summaries ---
-    const flows = store.getAllFlowCards().slice(0, 8);
-    const flowLines = flows.map(f => `${f.summary} (${f.hopCount}-hop)`);
-
-    // --- AI Readiness ---
     const readiness = computeAiReadiness(store);
 
-    // --- Build the CLAUDE.md ---
-    const sections: string[] = [];
+    return { projectName, projectDesc, languages, topDirs, dirSymbols, keyFiles, commandLines, techStack, conventions, flowLines, readiness };
+}
 
-    // Header
-    sections.push(`# ${projectName}`);
-    if (projectDesc) sections.push(`\n${projectDesc}`);
+function readPackageJson(rootDir: string): any {
+    try { return JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8')); } catch { return {}; }
+}
 
-    // Architecture
-    sections.push('\n## Architecture');
-    if (pkg.workspaces) {
-        sections.push(`Monorepo with ${topDirs.length} main directories:\n`);
-    }
-    sections.push('```');
-    for (const [dir, count] of topDirs) {
-        const syms = dirSymbols.get(dir) || [];
+// --- Format renderers ---
+
+export function generateClaudeMd(store: Store, options: GenerateOptions): string {
+    const data = collectProjectData(store, options.rootDir);
+    return renderClaudeMd(data);
+}
+
+function renderClaudeMd(d: ProjectData): string {
+    const s: string[] = [];
+
+    s.push(`# ${d.projectName}`);
+    if (d.projectDesc) s.push(`\n${d.projectDesc}`);
+
+    s.push('\n## Architecture');
+    s.push('```');
+    for (const [dir, count] of d.topDirs) {
+        const syms = d.dirSymbols.get(dir) || [];
         const symStr = syms.length > 0 ? ` → ${syms.join(', ')}` : '';
-        sections.push(`${dir.padEnd(30)} ${String(count).padStart(3)} files${symStr}`);
+        s.push(`${dir.padEnd(30)} ${String(count).padStart(3)} files${symStr}`);
     }
-    sections.push('```');
+    s.push('```');
 
-    // Key Files
-    sections.push('\n## Key Files');
-    for (const kf of keyFiles) {
+    s.push('\n## Key Files');
+    for (const kf of d.keyFiles) {
         const purposeStr = kf.purpose ? ` — ${kf.purpose}` : '';
-        sections.push(`- **\`${kf.relPath}\`**${purposeStr}`);
+        s.push(`- **\`${kf.relPath}\`**${purposeStr}`);
     }
 
-    // Commands
-    if (commandLines.length > 0) {
-        sections.push('\n## Commands');
-        sections.push('```bash');
-        for (const line of commandLines) {
-            sections.push(line);
+    if (d.commandLines.length > 0) {
+        s.push('\n## Commands');
+        s.push('```bash');
+        for (const line of d.commandLines) s.push(line);
+        s.push('```');
+    }
+
+    if (d.techStack.length > 0) {
+        s.push('\n## Tech Stack');
+        s.push(d.techStack.join(', '));
+    }
+
+    if (d.conventions.length > 0) {
+        s.push('\n## Conventions');
+        for (const conv of d.conventions) s.push(`- ${conv}`);
+    }
+
+    if (d.flowLines.length > 0) {
+        s.push('\n## Key Data Flows');
+        for (const fl of d.flowLines) s.push(`- ${fl}`);
+    }
+
+    s.push('\n## AI Readiness Score');
+    s.push(`**${d.readiness.overall}/100**\n`);
+    s.push('| Metric | Score | Details |');
+    s.push('|--------|-------|---------|');
+    s.push(`| Code Coverage | ${d.readiness.codeCoverage}% | ${d.readiness.details.indexedFiles}/${d.readiness.details.totalFiles} files indexed |`);
+    s.push(`| Description Quality | ${d.readiness.descriptionCoverage}% | ${d.readiness.details.enrichedCards}/${d.readiness.details.totalCards} cards enriched |`);
+    s.push(`| Flow Analysis | ${d.readiness.flowCoverage}% | ${d.readiness.details.flowCount} call flows traced |`);
+    s.push(`| Evidence Anchors | ${d.readiness.evidenceCoverage}% | ${d.readiness.details.anchorCount} anchors linked |`);
+
+    s.push('\n---');
+    s.push('*Auto-generated by [AtlasMemory](https://github.com/Bpolat0/atlasmemory). Re-run `atlasmemory generate` to update.*');
+
+    return s.join('\n');
+}
+
+function renderCursorRules(d: ProjectData): string {
+    const s: string[] = [];
+
+    s.push(`# ${d.projectName} — Cursor Rules`);
+    if (d.projectDesc) s.push(`\n${d.projectDesc}`);
+
+    s.push('\n## Project Structure');
+    for (const [dir, count] of d.topDirs) {
+        const syms = d.dirSymbols.get(dir) || [];
+        const symStr = syms.length > 0 ? `: ${syms.join(', ')}` : '';
+        s.push(`- \`${dir}/\` (${count} files)${symStr}`);
+    }
+
+    s.push('\n## Important Files');
+    for (const kf of d.keyFiles.slice(0, 10)) {
+        const purposeStr = kf.purpose ? ` — ${kf.purpose}` : '';
+        s.push(`- \`${kf.relPath}\`${purposeStr}`);
+    }
+
+    if (d.techStack.length > 0) {
+        s.push(`\n## Tech Stack\n${d.techStack.join(', ')}`);
+    }
+
+    if (d.conventions.length > 0) {
+        s.push('\n## Conventions');
+        for (const conv of d.conventions) s.push(`- ${conv}`);
+    }
+
+    if (d.commandLines.length > 0) {
+        s.push('\n## Commands');
+        for (const line of d.commandLines.slice(0, 8)) {
+            const [cmd, ...rest] = line.split('#');
+            s.push(`- \`${cmd.trim()}\` —${rest.join('#')}`);
         }
-        sections.push('```');
     }
 
-    // Tech Stack
-    if (techStack.length > 0) {
-        sections.push('\n## Tech Stack');
-        sections.push(techStack.join(', '));
+    if (d.flowLines.length > 0) {
+        s.push('\n## Key Flows');
+        for (const fl of d.flowLines.slice(0, 5)) s.push(`- ${fl}`);
     }
 
-    // Conventions
-    if (conventions.length > 0) {
-        sections.push('\n## Conventions');
-        for (const conv of conventions) {
-            sections.push(`- ${conv}`);
-        }
+    s.push('\n---');
+    s.push('*Auto-generated by AtlasMemory. Re-run `atlasmemory generate --format cursor` to update.*');
+
+    return s.join('\n');
+}
+
+function renderCopilotInstructions(d: ProjectData): string {
+    const s: string[] = [];
+
+    s.push(`# ${d.projectName}`);
+    if (d.projectDesc) s.push(`\n${d.projectDesc}`);
+
+    s.push('\n## Architecture Overview');
+    for (const [dir, count] of d.topDirs) {
+        const syms = d.dirSymbols.get(dir) || [];
+        const symStr = syms.length > 0 ? ` — key exports: ${syms.join(', ')}` : '';
+        s.push(`- \`${dir}/\` contains ${count} files${symStr}`);
     }
 
-    // Data Flows
-    if (flowLines.length > 0) {
-        sections.push('\n## Key Data Flows');
-        for (const fl of flowLines) {
-            sections.push(`- ${fl}`);
-        }
+    s.push('\n## Key Files to Reference');
+    for (const kf of d.keyFiles.slice(0, 10)) {
+        const purposeStr = kf.purpose ? `: ${kf.purpose}` : '';
+        s.push(`- \`${kf.relPath}\`${purposeStr}`);
     }
 
-    // AI Readiness Score
-    sections.push('\n## AI Readiness Score');
-    sections.push(`**${readiness.overall}/100**\n`);
-    sections.push(`| Metric | Score | Details |`);
-    sections.push(`|--------|-------|---------|`);
-    sections.push(`| Code Coverage | ${readiness.codeCoverage}% | ${readiness.details.indexedFiles}/${readiness.details.totalFiles} files indexed |`);
-    sections.push(`| Description Quality | ${readiness.descriptionCoverage}% | ${readiness.details.enrichedCards}/${readiness.details.totalCards} cards enriched |`);
-    sections.push(`| Flow Analysis | ${readiness.flowCoverage}% | ${readiness.details.flowCount} call flows traced |`);
-    sections.push(`| Evidence Anchors | ${readiness.evidenceCoverage}% | ${readiness.details.anchorCount} anchors linked |`);
-
-    if (readiness.descriptionCoverage < 100) {
-        sections.push(`\nTo improve: connect an AI agent (Claude/Codex) and let it enrich file descriptions via \`upsert_file_card\`.`);
+    if (d.techStack.length > 0) {
+        s.push(`\n## Technology\n${d.techStack.join(', ')}`);
     }
 
-    // Footer
-    sections.push('\n---');
-    sections.push('*Auto-generated by [AtlasMemory](https://github.com/Bpolat0/atlasmemory). Re-run `atlasmemory generate` to update.*');
+    if (d.conventions.length > 0) {
+        s.push('\n## Project Conventions');
+        for (const conv of d.conventions) s.push(`- ${conv}`);
+    }
 
-    return sections.join('\n');
+    if (d.commandLines.length > 0) {
+        s.push('\n## Build & Test Commands');
+        s.push('```bash');
+        for (const line of d.commandLines.slice(0, 8)) s.push(line);
+        s.push('```');
+    }
+
+    s.push('\n---');
+    s.push('*Auto-generated by AtlasMemory. Re-run `atlasmemory generate --format copilot` to update.*');
+
+    return s.join('\n');
+}
+
+// --- Public API ---
+
+export function generateAll(store: Store, options: GenerateOptions): GenerateResult {
+    const data = collectProjectData(store, options.rootDir);
+    const format = options.format || 'claude';
+    const results: GenerateResult = { files: [], readiness: data.readiness };
+
+    if (format === 'claude' || format === 'all') {
+        results.files.push({
+            path: path.join(options.rootDir, 'CLAUDE.md'),
+            content: renderClaudeMd(data),
+        });
+    }
+
+    if (format === 'cursor' || format === 'all') {
+        results.files.push({
+            path: path.join(options.rootDir, '.cursorrules'),
+            content: renderCursorRules(data),
+        });
+    }
+
+    if (format === 'copilot' || format === 'all') {
+        const ghDir = path.join(options.rootDir, '.github');
+        results.files.push({
+            path: path.join(ghDir, 'copilot-instructions.md'),
+            content: renderCopilotInstructions(data),
+        });
+    }
+
+    return results;
+}
+
+export function computeAiReadiness(store: Store): AiReadinessScore {
+    const files = store.getFiles();
+    const totalFiles = files.length;
+
+    const totalCards = (store.db.prepare('SELECT COUNT(*) as n FROM file_cards').get() as { n: number }).n;
+    const enrichedCards = totalCards - (store.db.prepare(
+        "SELECT COUNT(*) as n FROM file_cards WHERE card_level1 LIKE '%Awaiting AI enrichment%'"
+    ).get() as { n: number }).n;
+
+    const flowCount = (store.db.prepare('SELECT COUNT(*) as n FROM flow_cards').get() as { n: number }).n;
+    const anchorCount = (store.db.prepare('SELECT COUNT(*) as n FROM anchors').get() as { n: number }).n;
+    const symbolCount = (store.db.prepare('SELECT COUNT(*) as n FROM symbols').get() as { n: number }).n;
+
+    const codeCoverage = totalFiles > 0 ? 100 : 0;
+    const descriptionCoverage = totalCards > 0 ? Math.round((enrichedCards / totalCards) * 100) : 0;
+
+    const filesWithFlows = new Set(
+        (store.db.prepare('SELECT DISTINCT file_id FROM flow_cards').all() as { file_id: string }[]).map(r => r.file_id)
+    ).size;
+    const flowCoverage = totalFiles > 0 ? Math.min(100, Math.round((filesWithFlows / totalFiles) * 100)) : 0;
+
+    const symbolsWithAnchors = (store.db.prepare(
+        'SELECT COUNT(DISTINCT s.id) as n FROM symbols s INNER JOIN anchors a ON s.file_id = a.file_id AND s.start_line = a.start_line AND s.end_line = a.end_line'
+    ).get() as { n: number }).n;
+    const evidenceCoverage = symbolCount > 0 ? Math.round((symbolsWithAnchors / symbolCount) * 100) : 0;
+
+    const overall = Math.round(codeCoverage * 0.25 + descriptionCoverage * 0.30 + flowCoverage * 0.20 + evidenceCoverage * 0.25);
+
+    return {
+        overall, codeCoverage, descriptionCoverage, flowCoverage, evidenceCoverage,
+        details: { totalFiles, indexedFiles: totalFiles, enrichedCards, totalCards, flowCount, anchorCount, symbolCount }
+    };
 }
 
 export function renderReadinessBar(score: number): string {

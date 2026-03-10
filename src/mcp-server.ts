@@ -259,12 +259,13 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'generate_claude_md',
-                description: 'Auto-generate a CLAUDE.md file from indexed codebase. Makes your project AI-ready for Claude Code, Cursor, Codex.',
+                description: 'Auto-generate AI instruction files from indexed codebase. Supports CLAUDE.md, .cursorrules, copilot-instructions.md, or all at once.',
                 inputSchema: {
                     type: 'object',
                     properties: {
-                        stdout: { type: 'boolean', description: 'Return content instead of writing file (default: true)' },
-                        output: { type: 'string', description: 'File path to write (default: CLAUDE.md in project root)' },
+                        format: { type: 'string', enum: ['claude', 'cursor', 'copilot', 'all'], description: 'Output format (default: claude)' },
+                        stdout: { type: 'boolean', description: 'Return content instead of writing files (default: true)' },
+                        output: { type: 'string', description: 'File path to write (single format only)' },
                     },
                 },
             },
@@ -582,23 +583,34 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
             case 'generate_claude_md': {
                 await ensureIndexed();
-                const { generateClaudeMd } = await import('./generate-claude-md.js');
+                const { generateAll } = await import('./generate-claude-md.js');
                 const rootDir = (await import('./auto-index.js')).detectProjectRoot(process.cwd());
-                const content = generateClaudeMd(store, { rootDir });
+                const format = (['claude', 'cursor', 'copilot', 'all'].includes(String(args.format)) ? args.format : 'claude') as string;
+                const result = generateAll(store, { rootDir, format: format as any });
 
-                if (args.output) {
+                if (args.output && result.files.length === 1) {
                     const outputPath = path.resolve(String(args.output));
-                    fs.writeFileSync(outputPath, content, 'utf-8');
-                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, path: outputPath, lines: content.split('\n').length }) }] };
+                    fs.writeFileSync(outputPath, result.files[0].content, 'utf-8');
+                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, path: outputPath, format, readiness: result.readiness.overall }) }] };
                 }
 
                 if (args.stdout === false) {
-                    const outputPath = path.join(rootDir, 'CLAUDE.md');
-                    fs.writeFileSync(outputPath, content, 'utf-8');
-                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, path: outputPath, lines: content.split('\n').length }) }] };
+                    const written: string[] = [];
+                    for (const file of result.files) {
+                        const dir = path.dirname(file.path);
+                        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                        fs.writeFileSync(file.path, file.content, 'utf-8');
+                        written.push(file.path);
+                    }
+                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, files: written, format, readiness: result.readiness.overall }) }] };
                 }
 
-                return { content: [{ type: 'text', text: content }] };
+                // Return content (default)
+                if (result.files.length === 1) {
+                    return { content: [{ type: 'text', text: result.files[0].content }] };
+                }
+                const combined = result.files.map(f => `--- ${path.basename(f.path)} ---\n${f.content}`).join('\n\n');
+                return { content: [{ type: 'text', text: combined }] };
             }
 
             case 'ai_readiness': {

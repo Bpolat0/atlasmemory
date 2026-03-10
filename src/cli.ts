@@ -5,7 +5,8 @@ import { CardGenerator, FlowGenerator, LLMService, FolderSummarizer } from '@atl
 import { SearchService } from '@atlasmemory/retrieval';
 import { TaskPackBuilder, BootPackBuilder, ContextContractService } from '@atlasmemory/taskpack';
 import { autoIndex, detectProjectRoot } from './auto-index.js';
-import { generateClaudeMd, computeAiReadiness, renderReadinessBar } from './generate-claude-md.js';
+import { generateAll, computeAiReadiness, renderReadinessBar } from './generate-claude-md.js';
+import type { GenerateFormat } from './generate-claude-md.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -245,8 +246,9 @@ export function registerCliCommands(program: Command): void {
         });
 
     program.command('generate')
-        .description('Auto-generate CLAUDE.md from indexed codebase')
-        .option('-o, --output <path>', 'Output file path (default: CLAUDE.md)')
+        .description('Auto-generate AI instruction files from indexed codebase')
+        .option('-o, --output <path>', 'Output file path (overrides default for single format)')
+        .option('--format <type>', 'Output format: claude | cursor | copilot | all (default: claude)', 'claude')
         .option('--stdout', 'Print to stdout instead of writing file')
         .action((options) => {
             const store = getStore();
@@ -257,24 +259,38 @@ export function registerCliCommands(program: Command): void {
                 process.exit(1);
             }
 
-            const content = generateClaudeMd(store, { rootDir });
+            const format = options.format as GenerateFormat;
+            const result = generateAll(store, { rootDir, format });
 
             if (options.stdout) {
-                console.log(content);
+                for (const file of result.files) {
+                    if (result.files.length > 1) console.log(`--- ${path.basename(file.path)} ---`);
+                    console.log(file.content);
+                }
                 return;
             }
 
-            const outputPath = options.output || path.join(rootDir, 'CLAUDE.md');
-            const existed = fs.existsSync(outputPath);
-            fs.writeFileSync(outputPath, content, 'utf-8');
+            // Write files
+            const formatLabel = format === 'all' ? 'All Formats' : format === 'claude' ? 'CLAUDE.md' : format === 'cursor' ? '.cursorrules' : 'copilot-instructions.md';
+            console.log(`\nAtlasMemory - ${formatLabel} Generator\n`);
 
-            const readiness = computeAiReadiness(store);
-            console.log('\nAtlasMemory - CLAUDE.md Generator\n');
-            console.log(`  [OK] ${existed ? 'Updated' : 'Created'}: ${outputPath}`);
+            for (const file of result.files) {
+                const outputPath = (result.files.length === 1 && options.output) ? options.output : file.path;
+                const dir = path.dirname(outputPath);
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                const existed = fs.existsSync(outputPath);
+                fs.writeFileSync(outputPath, file.content, 'utf-8');
+                console.log(`  [OK] ${existed ? 'Updated' : 'Created'}: ${outputPath}`);
+            }
+
             console.log(`  [OK] ${store.getFiles().length} files analyzed`);
-            console.log(`  [OK] AI Readiness: ${readiness.overall}/100`);
+            console.log(`  [OK] AI Readiness: ${result.readiness.overall}/100`);
             console.log('\n  Your project is now AI-ready.');
-            console.log('  Any AI agent (Claude, Codex, Cursor) will understand your codebase.\n');
+            if (format === 'all') {
+                console.log('  Claude, Cursor, and Copilot will all understand your codebase.\n');
+            } else {
+                console.log('  Run with --format all to generate for Claude, Cursor, and Copilot.\n');
+            }
         });
 
     program.command('doctor')
