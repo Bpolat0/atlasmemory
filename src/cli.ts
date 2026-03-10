@@ -19,7 +19,18 @@ function getStore(dbPath?: string): Store {
         if (!fs.existsSync(path.dirname(resolved))) {
             fs.mkdirSync(path.dirname(resolved), { recursive: true });
         }
-        store = new Store(resolved);
+        try {
+            store = new Store(resolved);
+        } catch (e: any) {
+            if (e.code === 'SQLITE_NOTADB') {
+                console.error(`Error: Database file is corrupted: ${resolved}`);
+                console.error('Fix: Delete the file and re-index:');
+                console.error(`  rm "${resolved}"`);
+                console.error('  atlasmemory index');
+                process.exit(1);
+            }
+            throw e;
+        }
     }
     return store;
 }
@@ -78,6 +89,12 @@ export function registerCliCommands(program: Command): void {
         .option('--no-incremental', 'Force full re-indexing')
         .action(async (dir, options) => {
             const rootDir = dir ? path.resolve(dir) : detectProjectRoot(process.cwd());
+
+            if (!fs.existsSync(rootDir)) {
+                console.error(`Error: Directory does not exist: ${rootDir}`);
+                process.exit(1);
+            }
+
             const store = getStore();
 
             if (options.llm) {
@@ -145,12 +162,21 @@ export function registerCliCommands(program: Command): void {
         .description('Search the indexed repository')
         .option('--limit <number>', 'Max results', '10')
         .action((query, options) => {
+            if (!query.trim()) {
+                console.log('Please provide a search query. Example: atlasmemory search "authentication"');
+                return;
+            }
             const store = getStore();
             const service = new SearchService(store);
             const results = service.search(query, parseInt(options.limit));
 
             if (results.length === 0) {
-                console.log('No results. Run `atlasmemory index` first.');
+                const fileCount = store.getFiles().length;
+                if (fileCount === 0) {
+                    console.log('No files indexed. Run `atlasmemory index` first.');
+                } else {
+                    console.log(`No results found for "${query}".`);
+                }
                 return;
             }
             for (const r of results) {

@@ -23,6 +23,14 @@ export class Indexer {
         this.parsers['ts'] = tsParser;
         this.queries['ts'] = new Parser.Query(TypeScript.typescript, TS_QUERIES);
 
+        // JS/JSX/TSX/MJS/CJS all use the same TS grammar (superset)
+        const tsxParser = new Parser();
+        tsxParser.setLanguage(TypeScript.tsx);
+        for (const ext of ['js', 'jsx', 'tsx', 'mjs', 'cjs']) {
+            this.parsers[ext] = ext === 'tsx' || ext === 'jsx' ? tsxParser : tsParser;
+            this.queries[ext] = this.queries['ts'];
+        }
+
         const pyParser = new Parser();
         pyParser.setLanguage(Python);
         this.parsers['py'] = pyParser;
