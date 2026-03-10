@@ -171,3 +171,114 @@ export const CSHARP_QUERIES = `
     function: (member_access_expression
       name: (identifier) @call_name)) @call
 `;
+
+export const RUBY_QUERIES = `
+  (method
+    name: (identifier) @name
+    parameters: (method_parameters) @params
+    body: (body_statement) @body) @method
+
+  (class
+    name: (constant) @name
+    body: (body_statement) @body) @class
+
+  (module
+    name: (constant) @name
+    body: (body_statement) @body) @class
+
+  (call
+    method: (identifier) @call_name) @call
+
+  (call
+    receiver: (constant) @import_source
+    method: (identifier) @call_name) @call
+`;
+
+export const C_QUERIES = `
+  (function_definition
+    declarator: (function_declarator
+      declarator: (identifier) @name
+      parameters: (parameter_list) @params)
+    body: (compound_statement) @body) @function
+
+  (struct_specifier
+    name: (type_identifier) @name
+    body: (field_declaration_list) @body) @class
+
+  (enum_specifier
+    name: (type_identifier) @name
+    body: (enumerator_list) @body) @type
+
+  (preproc_include
+    path: (string_literal) @import_source) @import
+  (preproc_include
+    path: (system_lib_string) @import_source) @import
+
+  (call_expression
+    function: (identifier) @call_name) @call
+`;
+
+export const CPP_QUERIES = `
+  (function_definition
+    declarator: (function_declarator
+      declarator: (identifier) @name
+      parameters: (parameter_list) @params)
+    body: (compound_statement) @body) @function
+
+  (class_specifier
+    name: (type_identifier) @name
+    body: (field_declaration_list) @body) @class
+
+  (struct_specifier
+    name: (type_identifier) @name
+    body: (field_declaration_list) @body) @class
+
+  (enum_specifier
+    name: (type_identifier) @name
+    body: (enumerator_list) @body) @type
+
+  (preproc_include
+    path: (string_literal) @import_source) @import
+  (preproc_include
+    path: (system_lib_string) @import_source) @import
+
+  (call_expression
+    function: (identifier) @call_name) @call
+
+  (call_expression
+    function: (field_expression
+      field: (field_identifier) @call_name)) @call
+`;
+
+export const PHP_QUERIES = `
+  (function_definition
+    name: (name) @name
+    parameters: (formal_parameters) @params
+    body: (compound_statement) @body) @function
+
+  (method_declaration
+    name: (name) @name
+    parameters: (formal_parameters) @params
+    body: (compound_statement) @body) @method
+
+  (class_declaration
+    name: (name) @name
+    body: (declaration_list) @body) @class
+
+  (interface_declaration
+    name: (name) @name
+    body: (declaration_list) @body) @interface
+
+  (namespace_use_declaration
+    (namespace_use_clause
+      (qualified_name) @import_source)) @import
+
+  (function_call_expression
+    function: (name) @call_name) @call
+
+  (member_call_expression
+    name: (name) @call_name) @call
+`;
+
+// Kotlin, Swift, Scala queries ready but require tree-sitter 0.21+
+// Will be enabled when tree-sitter dependency is upgraded

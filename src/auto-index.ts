@@ -11,7 +11,12 @@ const EXCLUDED_DIRS = new Set([
 ]);
 
 const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/];
-const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.cs']);
+const CODE_EXTENSIONS = new Set([
+    '.ts', '.tsx', '.js', '.jsx', '.py',           // TS/JS/Python
+    '.go', '.rs', '.java', '.cs',                   // Go/Rust/Java/C#
+    '.rb', '.c', '.cpp', '.h', '.hpp',              // Ruby/C/C++
+    '.php',                                          // PHP
+]);
 
 function loadIgnorePatterns(rootDir: string): Set<string> {
     const ignorePath = path.join(rootDir, '.atlasignore');

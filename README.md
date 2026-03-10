@@ -7,7 +7,7 @@ Every claim grounded in code. Every context window optimized. Every session drif
 [![npm version](https://img.shields.io/npm/v/atlasmemory)](https://www.npmjs.com/package/atlasmemory)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
-[![Languages](https://img.shields.io/badge/languages-7-blueviolet)](#supported-languages)
+[![Languages](https://img.shields.io/badge/languages-11-blueviolet)](#supported-languages)
 
 ## The Problem
 
@@ -19,7 +19,7 @@ AI coding agents hallucinate about your code. They lose context between sessions
 | Session continuity | Start over | **Drift-detected** contracts |
 | Context window | Dump everything | **Token-budgeted** packs |
 | Dependencies | Cloud API keys | **Local-first**, zero config |
-| Languages | Varies | **TS/JS/Python/Go/Rust/Java/C#** |
+| Languages | Varies | **11 languages** (TS/JS/Python/Go/Rust/Java/C#/C/C++/Ruby/PHP) |
 
 ## 30-Second Setup
 
@@ -116,7 +116,7 @@ If the code changes and the hashes no longer match: **DRIFT DETECTED**. The AI a
 Your Codebase
      |
      v
-[Tree-sitter Parser] ── Extracts symbols, imports, call refs (7 languages)
+[Tree-sitter Parser] ── Extracts symbols, imports, call refs (11 languages)
      |
      v
 [SQLite + FTS5] ─────── Full-text search, graph edges, anchors
@@ -152,6 +152,10 @@ Your Codebase
 | Rust | Stable | functions, impl blocks, structs, traits, enums, use, calls |
 | Java | Stable | methods, classes, interfaces, enums, imports, calls |
 | C# | Stable | methods, classes, interfaces, structs, enums, using, calls |
+| C | Stable | functions, structs, enums, #include, calls |
+| C++ | Stable | functions, classes, structs, enums, #include, calls |
+| Ruby | Stable | methods, classes, modules, calls |
+| PHP | Stable | functions, methods, classes, interfaces, use, calls |
 
 ## MCP Tools
 
@@ -184,7 +188,7 @@ AtlasMemory works with **zero configuration**. Optional:
 atlasmemory (npm package)
 ├── packages/core        — Shared types (Anchor, FileCard, FlowCard, CodeSymbol)
 ├── packages/store       — SQLite + FTS5 search, all DB operations
-├── packages/indexer     — Tree-sitter parsing (7 languages)
+├── packages/indexer     — Tree-sitter parsing (11 languages)
 ├── packages/retrieval   — Multi-stage search (FTS → Path → Graph)
 ├── packages/summarizer  — Deterministic + LLM card generation
 ├── packages/taskpack    — Token budgeting, proof system, contracts

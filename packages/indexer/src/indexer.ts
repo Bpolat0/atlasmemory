@@ -4,7 +4,7 @@ import Python from 'tree-sitter-python';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 // @ts-ignore
-import { TS_QUERIES, PYTHON_QUERIES, GO_QUERIES, RUST_QUERIES, JAVA_QUERIES, CSHARP_QUERIES } from './queries.js';
+import { TS_QUERIES, PYTHON_QUERIES, GO_QUERIES, RUST_QUERIES, JAVA_QUERIES, CSHARP_QUERIES, RUBY_QUERIES, C_QUERIES, CPP_QUERIES, PHP_QUERIES } from './queries.js';
 import { createAnchor } from './utils.js';
 import type { CodeSymbol } from '@atlasmemory/core';
 import crypto from 'crypto';
@@ -59,6 +59,28 @@ export class Indexer {
             this.parsers['cs'] = csParser;
             this.queries['cs'] = new Parser.Query(CSharp, CSHARP_QUERIES);
         } catch { /* tree-sitter-c-sharp not installed */ }
+
+        // Wave 2: Ruby, C, C++, PHP
+        const wave2: Array<[string, string, string]> = [
+            ['rb', 'tree-sitter-ruby', RUBY_QUERIES],
+            ['c', 'tree-sitter-c', C_QUERIES],
+            ['cpp', 'tree-sitter-cpp', CPP_QUERIES],
+            ['h', 'tree-sitter-c', C_QUERIES],         // C headers
+            ['hpp', 'tree-sitter-cpp', CPP_QUERIES],    // C++ headers
+            ['php', 'tree-sitter-php', PHP_QUERIES],
+        ];
+        for (const [ext, mod, queries] of wave2) {
+            try {
+                const lang = require(mod);
+                const langObj = lang.default || lang;
+                // Some grammars (e.g., PHP) export a sub-object
+                const grammar = langObj.php || langObj;
+                const p = new Parser();
+                p.setLanguage(grammar);
+                this.parsers[ext] = p;
+                this.queries[ext] = new Parser.Query(grammar, queries);
+            } catch { /* not installed */ }
+        }
     }
 
     parse(filePath: string, content: string): { symbols: CodeSymbol[], anchors: import('@atlasmemory/core').Anchor[], imports: import('@atlasmemory/core').Import[], refs: import('@atlasmemory/core').CodeRef[] } {

@@ -9,7 +9,7 @@ Monorepo (npm workspaces) with 6 packages + 3 apps:
 ```
 packages/core       → Shared types (Anchor, CodeSymbol, FileCard, FlowCard)
 packages/store      → SQLite via better-sqlite3, FTS5 search, all DB ops
-packages/indexer    → Tree-sitter parsing (TS/JS/Python/Go/Rust/Java/C#)
+packages/indexer    → Tree-sitter parsing (11 langs: TS/JS/Python/Go/Rust/Java/C#/C/C++/Ruby/PHP)
 packages/retrieval  → Multi-stage search (FTS → Path → Folder → Graph)
 packages/summarizer → Card generation (deterministic + optional LLM)
 packages/taskpack   → Token-budgeted context packs, proof system, contracts
@@ -50,7 +50,7 @@ npm run selftest:agent   # Agent self-test validation
 - **Language:** TypeScript (ES2022, NodeNext modules, strict mode)
 - **Runtime:** Node.js v18+
 - **DB:** SQLite via better-sqlite3, FTS5 enabled
-- **Parser:** Tree-sitter (TS, JS, Python, Go, Rust, Java, C# — 7 languages)
+- **Parser:** Tree-sitter (TS, JS, Python, Go, Rust, Java, C#, C, C++, Ruby, PHP — 11 languages)
 - **MCP:** @modelcontextprotocol/sdk
 - **CLI:** Commander.js
 - **Build:** tsc + esbuild → dist/atlasmemory.js (~200KB bundle)
