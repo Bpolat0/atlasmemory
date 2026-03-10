@@ -150,6 +150,7 @@ export interface FileCard {
     };
     level1?: Level1FileCard;
     level2?: Level2FileCard;
+    level3?: Level3FileCard;  // NEW
     cardHash: string;
     qualityScore?: number;
     qualityFlags?: string[];
@@ -304,4 +305,40 @@ export interface ConversationContext {
     filesAccessed: string[];
     searchHistory: Array<{ query: string; resultCount: number }>;
     tokenBudget?: TokenBudgetReport;
+}
+
+// ============================================================
+// Phase 20: Collaborative Intelligence Types
+// ============================================================
+
+export interface SamplingClient {
+    canSample(): boolean;
+    requestCompletion(prompt: string, maxTokens: number): Promise<string>;
+}
+
+export interface Level3FileCard {
+    intent: string;
+    solves: string;
+    tags: string[];
+    breaks_if_changed: string[];
+    security_notes: string | null;
+    complexity: 'low' | 'medium' | 'high';
+}
+
+export interface CodeDNA {
+    fileId: string;
+    churnScore: number;
+    breakFrequency: number;
+    lastModified: string;
+    contributorCount: number;
+    coupledFiles: string[];
+    riskLevel: 'stable' | 'volatile' | 'fragile';
+}
+
+export interface ProactiveIntelligence {
+    warnings?: string[];
+    suggestions?: string[];
+    impact?: string;
+    enrichment_pending?: number;
+    code_health?: string;
 }
