@@ -9,7 +9,7 @@ export class TaskPackBuilder {
     constructor(private store: Store) { }
 
     build(objective: string, initialFileIds: string[], tokenBudget: number = 12000, options: any = {}): string {
-        const { includeDts = false, snippetMaxLines = 120, proof = 'strict', allowUnproven = false } = options;
+        const { includeDts = false, snippetMaxLines = 40, proof = 'strict', allowUnproven = false } = options;
         const proofPolicy: EvidencePolicy = proof === 'warn' || proof === 'off' ? proof : (allowUnproven ? 'warn' : 'strict');
         const prover = new ClaimProver(this.store);
 

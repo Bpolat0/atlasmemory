@@ -19,7 +19,7 @@ export class CardGenerator {
         anchors: import('@atlasmemory/core').Anchor[] = [],
         flowCards: import('@atlasmemory/core').FlowCard[] = []
     ): Promise<FileCard> {
-        const exports = symbols.filter(s => s.visibility === 'public').map(s => s.name);
+        const exports = [...new Set(symbols.filter(s => s.visibility === 'public').map(s => s.name))];
 
         // Deterministic Level 0
         const level0 = {

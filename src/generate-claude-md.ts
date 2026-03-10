@@ -101,9 +101,10 @@ function collectProjectData(store: Store, rootDir: string): ProjectData {
 
         if (!dirSymbols.has(dir)) dirSymbols.set(dir, []);
         const syms = store.getSymbolsForFile(file.id);
+        const existing = dirSymbols.get(dir)!;
         for (const sym of syms) {
-            if (sym.visibility === 'public' && !NOISE_SYMBOLS.has(sym.name) && dirSymbols.get(dir)!.length < 3) {
-                dirSymbols.get(dir)!.push(sym.name);
+            if (sym.visibility === 'public' && !NOISE_SYMBOLS.has(sym.name) && existing.length < 3 && !existing.includes(sym.name)) {
+                existing.push(sym.name);
             }
         }
     }
