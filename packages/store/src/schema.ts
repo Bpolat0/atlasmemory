@@ -182,4 +182,21 @@ export const SCHEMA = `
   -- FTS Tables (Porter stemmer enables matching "authentication" ↔ "authenticate")
   CREATE VIRTUAL TABLE IF NOT EXISTS fts_files USING fts5(path, content, file_id UNINDEXED, tokenize='porter unicode61');
   CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(name, qualified_name, signature, file_id UNINDEXED, tokenize='porter unicode61');
+
+  -- Phase 20: Semantic Tags FTS (AI-generated concept-level search)
+  CREATE VIRTUAL TABLE IF NOT EXISTS fts_semantic_tags
+    USING fts5(tags, intent, file_id UNINDEXED, tokenize='porter unicode61');
+
+  -- Phase 20: Code Health (git history-based file health metrics)
+  CREATE TABLE IF NOT EXISTS code_health (
+    file_id TEXT PRIMARY KEY,
+    churn_score REAL,
+    break_frequency INTEGER DEFAULT 0,
+    last_modified TEXT,
+    contributor_count INTEGER DEFAULT 1,
+    coupled_files_json TEXT,
+    risk_level TEXT DEFAULT 'stable',
+    analyzed_at TEXT,
+    FOREIGN KEY (file_id) REFERENCES files(id)
+  );
 `;

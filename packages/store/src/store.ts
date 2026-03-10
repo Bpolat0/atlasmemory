@@ -41,6 +41,9 @@ export class Store {
         try {
             this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level2 TEXT").run();
         } catch (e) { /* ignore if exists */ }
+        try {
+            this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level3 TEXT").run();
+        } catch (e) { /* ignore if exists */ }
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS flow_cards (
                 id TEXT PRIMARY KEY,
@@ -189,6 +192,8 @@ export class Store {
             // 7. Delete FTS
             this.db.prepare('DELETE FROM fts_files WHERE file_id = ?').run(id);
             this.db.prepare('DELETE FROM fts_symbols WHERE file_id = ?').run(id);
+            this.db.prepare('DELETE FROM fts_semantic_tags WHERE file_id = ?').run(id);
+            this.db.prepare('DELETE FROM code_health WHERE file_id = ?').run(id);
         });
 
         deleteTransaction();
@@ -197,14 +202,15 @@ export class Store {
     // --- Cards ---
     addFileCard(card: FileCard) {
         const stmt = this.db.prepare(`
-            INSERT OR REPLACE INTO file_cards (file_id, card_level0, card_level1, card_level2, evidence_anchors_json, card_hash, quality_score, quality_flags_json, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            INSERT OR REPLACE INTO file_cards (file_id, card_level0, card_level1, card_level2, card_level3, evidence_anchors_json, card_hash, quality_score, quality_flags_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         `);
         stmt.run(
             card.fileId,
             JSON.stringify(card.level0),
             card.level1 ? JSON.stringify(card.level1) : null,
             card.level2 ? JSON.stringify(card.level2) : null,
+            card.level3 ? JSON.stringify(card.level3) : null,
             card.level1?.evidenceAnchorIds ? JSON.stringify(card.level1.evidenceAnchorIds) : null,
             card.cardHash,
             card.qualityScore || 0,
@@ -236,6 +242,7 @@ export class Store {
             level0: JSON.parse(row.card_level0),
             level1,
             level2: row.card_level2 ? JSON.parse(row.card_level2) : undefined,
+            level3: row.card_level3 ? JSON.parse(row.card_level3) : undefined,
             cardHash: row.card_hash,
             qualityScore: row.quality_score || 0,
             qualityFlags: row.quality_flags_json ? JSON.parse(row.quality_flags_json) : []
@@ -934,7 +941,19 @@ export class Store {
             }
         }
 
-        // 3. Fallback: Path LIKE for each term
+        // 3. FTS Semantic Tags (concept-level search, ×8 multiplier)
+        ftsSearch('fts_semantic_tags', phraseQuery, 8);
+        if (terms.length > 1) {
+            const semanticOrQuery = terms
+                .filter(t => t.length >= 3)
+                .map(t => `"${t.replace(/"/g, '')}"`)
+                .join(' OR ');
+            if (semanticOrQuery) {
+                ftsSearch('fts_semantic_tags', semanticOrQuery, 8);
+            }
+        }
+
+        // 4. Fallback: Path LIKE for each term
         const queryLower = query.toLowerCase();
         const pathMatches = this.db.prepare('SELECT id, path FROM files WHERE path LIKE ? LIMIT ?').all(`%${query}%`, limit) as { id: string, path: string }[];
         for (const file of pathMatches) {
@@ -986,6 +1005,90 @@ export class Store {
             .filter(r => r.score > 0)
             .sort((a, b) => b.score - a.score)
             .slice(0, limit);
+    }
+
+    // ============================================================
+    // Phase 20: Semantic Tags + Code Health + Level3
+    // ============================================================
+
+    // --- Semantic Tags ---
+    upsertSemanticTags(fileId: string, tags: string[], intent: string): void {
+        this.db.prepare('DELETE FROM fts_semantic_tags WHERE file_id = ?').run(fileId);
+        this.db.prepare(
+            'INSERT INTO fts_semantic_tags (tags, intent, file_id) VALUES (?, ?, ?)'
+        ).run(tags.join(' '), intent, fileId);
+    }
+
+    searchSemanticTags(query: string): { fileId: string; rank: number }[] {
+        try {
+            const safeQuery = `"${query.replace(/"/g, '""')}"`;
+            return this.db.prepare(`
+                SELECT file_id, rank
+                FROM fts_semantic_tags
+                WHERE fts_semantic_tags MATCH ?
+                ORDER BY rank
+                LIMIT 50
+            `).all(safeQuery).map((row: any) => ({
+                fileId: row.file_id,
+                rank: row.rank,
+            }));
+        } catch (e) {
+            return [];
+        }
+    }
+
+    getSemanticTags(fileId: string): { tags: string; intent: string } | null {
+        const row = this.db.prepare(
+            'SELECT tags, intent FROM fts_semantic_tags WHERE file_id = ?'
+        ).get(fileId) as any;
+        return row ? { tags: row.tags, intent: row.intent } : null;
+    }
+
+    deleteSemanticTags(fileId: string): void {
+        this.db.prepare('DELETE FROM fts_semantic_tags WHERE file_id = ?').run(fileId);
+    }
+
+    // --- Code Health ---
+    upsertCodeHealth(health: { fileId: string; churnScore: number; breakFrequency: number; lastModified: string; contributorCount: number; coupledFiles: string[]; riskLevel: string }): void {
+        this.db.prepare(`
+            INSERT OR REPLACE INTO code_health
+            (file_id, churn_score, break_frequency, last_modified, contributor_count, coupled_files_json, risk_level, analyzed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(
+            health.fileId, health.churnScore, health.breakFrequency,
+            health.lastModified, health.contributorCount,
+            JSON.stringify(health.coupledFiles), health.riskLevel
+        );
+    }
+
+    getCodeHealth(fileId: string): import('@atlasmemory/core').CodeDNA | null {
+        const row = this.db.prepare('SELECT * FROM code_health WHERE file_id = ?').get(fileId) as any;
+        if (!row) return null;
+        return {
+            fileId: row.file_id,
+            churnScore: row.churn_score,
+            breakFrequency: row.break_frequency,
+            lastModified: row.last_modified,
+            contributorCount: row.contributor_count,
+            coupledFiles: JSON.parse(row.coupled_files_json || '[]'),
+            riskLevel: row.risk_level as any,
+        };
+    }
+
+    getAllCodeHealth(): import('@atlasmemory/core').CodeDNA[] {
+        return this.db.prepare('SELECT * FROM code_health ORDER BY churn_score DESC').all().map((row: any) => ({
+            fileId: row.file_id,
+            churnScore: row.churn_score,
+            breakFrequency: row.break_frequency,
+            lastModified: row.last_modified,
+            contributorCount: row.contributor_count,
+            coupledFiles: JSON.parse(row.coupled_files_json || '[]'),
+            riskLevel: row.risk_level as any,
+        }));
+    }
+
+    clearCodeHealth(): void {
+        this.db.prepare('DELETE FROM code_health').run();
     }
 
     close() {
