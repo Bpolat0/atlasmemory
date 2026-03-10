@@ -5,7 +5,8 @@ import {
     ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { Store } from '@atlasmemory/store';
-import { SearchService } from '@atlasmemory/retrieval';
+import { SearchService, GraphService } from '@atlasmemory/retrieval';
+import { ImpactAnalyzer, PrefetchEngine, DiffEnricher, BudgetTracker, ConversationMemory, SessionLearner } from '@atlasmemory/intelligence';
 import { TaskPackBuilder, BootPackBuilder, ContextContractService } from '@atlasmemory/taskpack';
 import { CardGenerator, FlowGenerator, scoreFileCard } from '@atlasmemory/summarizer';
 import { sha256 } from '@atlasmemory/core';
@@ -35,6 +36,22 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
     const contractService = new ContextContractService(store, process.cwd());
     const flowGenerator = new FlowGenerator(store);
     const deterministicCardGenerator = new CardGenerator();
+
+    // Phase 19: Intelligence Layer
+    const graphService = new GraphService(store);
+    const impactAnalyzer = new ImpactAnalyzer(store);
+    const prefetchEngine = new PrefetchEngine(store, graphService);
+    const diffEnricher = new DiffEnricher(store);
+    const budgetTracker = new BudgetTracker(store);
+    const conversationMemory = new ConversationMemory(store);
+    const sessionLearner = new SessionLearner(store);
+
+    let reverseRefsBuilt = false;
+    async function ensureReverseRefs(): Promise<void> {
+        if (reverseRefsBuilt) return;
+        store.buildReverseRefs();
+        reverseRefsBuilt = true;
+    }
 
     // Auto-index guard: ensure DB has data before queries
     let indexPromise: Promise<void> | null = null;
@@ -329,6 +346,58 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     required: ['contractHash'],
                 },
             },
+            {
+                name: 'analyze_impact',
+                description: 'Analyze impact of changing a symbol or file. Shows dependent files, affected flows, test coverage, and risk level.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        symbol_name: { type: 'string', description: 'Symbol name (e.g. "handleLogin")' },
+                        file_path: { type: 'string', description: 'Narrow scope to specific file' },
+                        include_transitive: { type: 'boolean', description: 'Include 2-hop dependents (default: true)' },
+                        session_id: { type: 'string', description: 'Session ID for budget tracking' },
+                    },
+                    required: ['symbol_name'],
+                },
+            },
+            {
+                name: 'smart_diff',
+                description: 'Semantically-enriched diff: symbol changes, breaking changes, affected flows, test coverage. Much richer than raw git diff.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        since: { type: 'string', description: 'Git ref (default: HEAD for unstaged changes)' },
+                        file_path: { type: 'string', description: 'Specific file path' },
+                        session_id: { type: 'string', description: 'Session ID for budget tracking' },
+                    },
+                },
+            },
+            {
+                name: 'remember',
+                description: 'Record a constraint or decision for the current session. Constraints are surfaced in future context builds to prevent conflicting actions.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        type: { type: 'string', enum: ['constraint', 'decision'], description: 'constraint = must not do, decision = was decided' },
+                        text: { type: 'string', description: 'What to remember' },
+                        related_files: { type: 'array', items: { type: 'string' }, description: 'Related file paths' },
+                        session_id: { type: 'string', description: 'Session ID' },
+                    },
+                    required: ['type', 'text'],
+                },
+            },
+            {
+                name: 'session_context',
+                description: 'Get full conversation context: active constraints, decisions, files accessed, token budget, and relevant past sessions.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        session_id: { type: 'string', description: 'Session ID' },
+                        include_past_sessions: { type: 'boolean', description: 'Include related past sessions (default: true)' },
+                        budget_limit: { type: 'number', description: 'Context window size for budget tracking' },
+                    },
+                },
+            },
         ],
     }));
 
@@ -338,13 +407,37 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         switch (request.params.name) {
             case 'search_repo': {
                 await ensureIndexed();
-                const results = searchService.search(String(args.query));
-                return { content: [{ type: 'text', text: JSON.stringify(results, null, 2) }] };
+                const query = String(args.query);
+                const results = searchService.search(query);
+
+                // Log search event
+                const sessionId = args.session_id ? String(args.session_id) : 'default';
+                const resultFileIds = results.map((r: any) => r.file?.id || '').filter(Boolean);
+                conversationMemory.recordSearch(sessionId, query, resultFileIds);
+
+                // Apply learned pattern boosts
+                const boosts = sessionLearner.getSearchBoosts(query);
+                if (boosts.size > 0) {
+                    for (const result of results as any[]) {
+                        const fileId = result.file?.id;
+                        if (fileId && boosts.has(fileId)) {
+                            result.score = (result.score || 0) + boosts.get(fileId)!;
+                            result.patternBoosted = true;
+                        }
+                    }
+                    results.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+                }
+
+                const responseText = JSON.stringify(results, null, 2);
+                budgetTracker.trackUsage(sessionId, 'search_repo', responseText);
+
+                return { content: [{ type: 'text', text: responseText }] };
             }
 
             case 'index_repo': {
                 const repoPath = String(args.path);
                 const result = await autoIndex(store, repoPath);
+                reverseRefsBuilt = false;
                 return {
                     content: [{
                         type: 'text',
@@ -401,6 +494,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 fileCard.qualityFlags = quality.flags;
                 store.addFileCard(fileCard);
                 store.setState('last_index_at', new Date().toISOString());
+                reverseRefsBuilt = false;
 
                 return {
                     content: [{
@@ -510,7 +604,25 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                         const bcPack = taskPackBuilder.build(bcObjective, bcFileIds, bcBudget, { proof: bcProof });
                         const bcPackHash = sha256(bcPack);
                         contractService.createSnapshot({ sessionId: args.sessionId ? String(args.sessionId) : undefined, objective: bcObjective, taskpackHash: bcPackHash, proofMode: bcProof });
-                        return { content: [{ type: 'text', text: bcPack }] };
+
+                        // Log event & enhance response
+                        const bcSessionId = args.sessionId ? String(args.sessionId) : 'default';
+                        conversationMemory.recordContextBuild(bcSessionId, 'task', bcObjective, bcFileIds, bcPack.length / 4);
+
+                        const prefetchSuggestions = prefetchEngine.predictNextFiles({
+                            searchQuery: bcObjective, accessedFileIds: bcFileIds, objective: bcObjective,
+                        }, 3);
+                        const prefetchText = prefetchEngine.formatSuggestions(prefetchSuggestions);
+
+                        const bcConstraints = conversationMemory.getActiveConstraints(bcSessionId);
+                        let constraintText = '';
+                        if (bcConstraints.length > 0) {
+                            constraintText = '\n\n⚠️ Active Constraints:\n' + bcConstraints.map(c => `  - ${c.text}`).join('\n');
+                        }
+
+                        const bcBudgetReport = budgetTracker.trackUsage(bcSessionId, 'build_context', bcPack);
+
+                        return { content: [{ type: 'text', text: bcPack + constraintText + prefetchText + '\n\n' + budgetTracker.formatBudgetHeader(bcBudgetReport) }] };
                     }
                     case 'project': {
                         const bpResult = bootPackBuilder.buildBootPack({
@@ -667,8 +779,22 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
             case 'handshake': {
                 await ensureIndexed();
+                await ensureReverseRefs();
+
+                const lastSessionId = store.getState('last_active_session');
+                const currentSessionId = args.session_id ? String(args.session_id) : undefined;
+                if (lastSessionId && currentSessionId && lastSessionId !== currentSessionId) {
+                    sessionLearner.learnFromSession(lastSessionId);
+                }
+                if (currentSessionId) {
+                    store.setState('last_active_session', currentSessionId);
+                }
+
                 const result = bootPackBuilder.buildHandshake(Number(args.budget || 400));
-                return { content: [{ type: 'text', text: result.text }] };
+                const hotPaths = sessionLearner.formatHotPaths();
+                const enhanced = hotPaths ? result.text + '\n\n' + hotPaths : result.text;
+
+                return { content: [{ type: 'text', text: enhanced }] };
             }
 
             case 'session_bootstrap': {
@@ -771,6 +897,91 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 );
                 if (!ok) return { isError: true, content: [{ type: 'text', text: JSON.stringify({ ok: false, code: 'CONTRACT_NOT_FOUND' }) }] };
                 return { content: [{ type: 'text', text: JSON.stringify({ ok: true, contractHash: args.contractHash }) }] };
+            }
+
+            case 'analyze_impact': {
+                await ensureIndexed();
+                await ensureReverseRefs();
+                const symbolName = String(args.symbol_name);
+                const symbols = args.file_path
+                    ? store.findSymbolsByName(symbolName, store.getFileId(path.resolve(String(args.file_path))))
+                    : store.findSymbolsByName(symbolName);
+
+                if (symbols.length === 0) {
+                    return { content: [{ type: 'text', text: `Symbol "${symbolName}" not found in index. Run index_repo first.` }], isError: true };
+                }
+
+                const report = impactAnalyzer.analyzeSymbol(symbols[0].id, { includeTransitive: args.include_transitive !== false });
+                const formatted = impactAnalyzer.formatReport(report);
+
+                const sessionId = args.session_id ? String(args.session_id) : 'default';
+                const budgetReport = budgetTracker.trackUsage(sessionId, 'analyze_impact', formatted);
+
+                return { content: [{ type: 'text', text: formatted + '\n\n' + budgetTracker.formatBudgetHeader(budgetReport) }] };
+            }
+
+            case 'smart_diff': {
+                await ensureIndexed();
+                await ensureReverseRefs();
+                const diffs = diffEnricher.enrichGitDiff(args.since ? String(args.since) : undefined);
+
+                if (diffs.length === 0) {
+                    return { content: [{ type: 'text', text: 'No changes detected.' }] };
+                }
+
+                const formatted = diffEnricher.formatDiffs(diffs);
+                const sessionId = args.session_id ? String(args.session_id) : 'default';
+                const budgetReport = budgetTracker.trackUsage(sessionId, 'smart_diff', formatted);
+
+                return { content: [{ type: 'text', text: formatted + '\n\n' + budgetTracker.formatBudgetHeader(budgetReport) }] };
+            }
+
+            case 'remember': {
+                const sessionId = args.session_id ? String(args.session_id) : 'default';
+                const memType = String(args.type);
+                const text = String(args.text);
+                const relatedFiles = Array.isArray(args.related_files) ? args.related_files.map(String) : [];
+
+                if (memType === 'constraint') {
+                    conversationMemory.recordConstraint(sessionId, text);
+                } else {
+                    conversationMemory.recordDecision(sessionId, text, relatedFiles.map(f => store.getFileId(path.resolve(f)) || f));
+                }
+
+                const constraints = conversationMemory.getActiveConstraints(sessionId);
+                const response = `✅ Recorded ${memType}: "${text}"\n\n` +
+                    (constraints.length > 0 ? '⚠️ Active Constraints:\n' + constraints.map(c => `  - ${c.text}`).join('\n') : 'No active constraints.');
+
+                return { content: [{ type: 'text', text: response }] };
+            }
+
+            case 'session_context': {
+                const sessionId = args.session_id ? String(args.session_id) : 'default';
+                const ctx = conversationMemory.getContext(sessionId);
+
+                let response = conversationMemory.formatContext(ctx);
+
+                const budgetLimit = args.budget_limit ? Number(args.budget_limit) : undefined;
+                const budgetReport = budgetTracker.getReport(sessionId, budgetLimit);
+                response += '\n\n' + budgetTracker.formatBudgetHeader(budgetReport);
+
+                const hotPaths = sessionLearner.formatHotPaths();
+                if (hotPaths) response += '\n\n' + hotPaths;
+
+                if (args.include_past_sessions !== false && ctx.currentObjective) {
+                    const related = conversationMemory.findRelatedSessions(ctx.currentObjective);
+                    if (related.length > 0) {
+                        response += '\n\n📝 Related Previous Sessions:';
+                        for (const r of related) {
+                            response += `\n  - Session ${r.sessionId.slice(0, 8)}... (${(r.overlap * 100).toFixed(0)}% overlap)`;
+                            if (r.relevantConstraints.length > 0) {
+                                response += `\n    Constraints: ${r.relevantConstraints.join(', ')}`;
+                            }
+                        }
+                    }
+                }
+
+                return { content: [{ type: 'text', text: response }] };
             }
 
             default:
