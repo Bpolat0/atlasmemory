@@ -5,6 +5,7 @@ import { CardGenerator, FlowGenerator, LLMService, FolderSummarizer } from '@atl
 import { SearchService } from '@atlasmemory/retrieval';
 import { TaskPackBuilder, BootPackBuilder, ContextContractService } from '@atlasmemory/taskpack';
 import { autoIndex, detectProjectRoot } from './auto-index.js';
+import { generateClaudeMd, computeAiReadiness, renderReadinessBar } from './generate-claude-md.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -48,13 +49,51 @@ export function registerCliCommands(program: Command): void {
                 console.log('LLM summarization enabled');
             }
 
-            console.log(`Indexing ${rootDir}...`);
+            console.log(`\nAtlasMemory - Indexing ${rootDir}\n`);
+            let fileCounter = 0;
+            const startTime = Date.now();
             const result = await autoIndex(store, rootDir, {
-                onFile: (p) => console.log(`  ${path.relative(rootDir, p)}`),
+                onFile: () => {
+                    fileCounter++;
+                    if (fileCounter % 10 === 0) process.stdout.write(`\r  Indexing... ${fileCounter} files`);
+                },
                 incremental: options.incremental,
             });
-            const skipMsg = result.skipped > 0 ? ` (${result.skipped} unchanged, skipped)` : '';
-            console.log(`Done. ${result.files} files, ${result.symbols} symbols indexed.${skipMsg}`);
+            const elapsed = Date.now() - startTime;
+
+            // Language breakdown
+            const langCounts = new Map<string, number>();
+            for (const file of store.getFiles()) {
+                const ext = path.extname(file.path).toLowerCase();
+                const lang = ext === '.ts' || ext === '.tsx' ? 'TS' : ext === '.js' || ext === '.jsx' ? 'JS' : ext === '.py' ? 'PY' : ext.slice(1).toUpperCase();
+                if (lang) langCounts.set(lang, (langCounts.get(lang) || 0) + 1);
+            }
+            const langStr = Array.from(langCounts.entries()).map(([l, c]) => `${c} ${l}`).join(', ');
+            const flowCount = (store.db.prepare('SELECT COUNT(*) as n FROM flow_cards').get() as { n: number }).n;
+            const symbolCount = (store.db.prepare('SELECT COUNT(*) as n FROM symbols').get() as { n: number }).n;
+            const exportCount = (store.db.prepare("SELECT COUNT(*) as n FROM symbols WHERE visibility = 'public'").get() as { n: number }).n;
+
+            process.stdout.write('\r');
+            console.log(`  [OK] ${result.files} files indexed (${langStr}) in ${elapsed}ms`);
+            console.log(`  [OK] ${symbolCount} symbols extracted, ${exportCount} public exports`);
+            console.log(`  [OK] ${flowCount} call flows traced`);
+            if (result.skipped > 0) console.log(`  [--] ${result.skipped} unchanged files skipped`);
+            console.log(`  [DB] ${path.resolve(process.env.ATLAS_DB_PATH || '.atlas/atlas.db')}`);
+
+            // AI Readiness Score
+            const readiness = computeAiReadiness(store);
+            console.log(`\n  AI Readiness: ${renderReadinessBar(readiness.overall)}`);
+            console.log(`    Code:         ${readiness.codeCoverage}%`);
+            console.log(`    Descriptions: ${readiness.descriptionCoverage}%`);
+            console.log(`    Flows:        ${readiness.flowCoverage}%`);
+            console.log(`    Evidence:     ${readiness.evidenceCoverage}%`);
+
+            // Next steps
+            console.log('\n  Next steps:');
+            console.log('    atlasmemory generate     Generate CLAUDE.md for this project');
+            console.log('    atlasmemory search "X"   Search your codebase');
+            console.log('    atlasmemory doctor       Check database health');
+            console.log('');
         });
 
     program.command('search <query>')
@@ -203,6 +242,39 @@ export function registerCliCommands(program: Command): void {
             const ok = service.acknowledgeContext(options.contract, options.session);
             if (!ok) { console.error(JSON.stringify({ ok: false, code: 'CONTRACT_NOT_FOUND' })); process.exitCode = 1; }
             else console.log(JSON.stringify({ ok: true, contractHash: options.contract }));
+        });
+
+    program.command('generate')
+        .description('Auto-generate CLAUDE.md from indexed codebase')
+        .option('-o, --output <path>', 'Output file path (default: CLAUDE.md)')
+        .option('--stdout', 'Print to stdout instead of writing file')
+        .action((options) => {
+            const store = getStore();
+            const rootDir = detectProjectRoot(process.cwd());
+
+            if (store.getFiles().length === 0) {
+                console.error('No files indexed. Run `atlasmemory index .` first.');
+                process.exit(1);
+            }
+
+            const content = generateClaudeMd(store, { rootDir });
+
+            if (options.stdout) {
+                console.log(content);
+                return;
+            }
+
+            const outputPath = options.output || path.join(rootDir, 'CLAUDE.md');
+            const existed = fs.existsSync(outputPath);
+            fs.writeFileSync(outputPath, content, 'utf-8');
+
+            const readiness = computeAiReadiness(store);
+            console.log('\nAtlasMemory - CLAUDE.md Generator\n');
+            console.log(`  [OK] ${existed ? 'Updated' : 'Created'}: ${outputPath}`);
+            console.log(`  [OK] ${store.getFiles().length} files analyzed`);
+            console.log(`  [OK] AI Readiness: ${readiness.overall}/100`);
+            console.log('\n  Your project is now AI-ready.');
+            console.log('  Any AI agent (Claude, Codex, Cursor) will understand your codebase.\n');
         });
 
     program.command('doctor')

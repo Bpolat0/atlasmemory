@@ -258,6 +258,22 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 },
             },
             {
+                name: 'generate_claude_md',
+                description: 'Auto-generate a CLAUDE.md file from indexed codebase. Makes your project AI-ready for Claude Code, Cursor, Codex.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        stdout: { type: 'boolean', description: 'Return content instead of writing file (default: true)' },
+                        output: { type: 'string', description: 'File path to write (default: CLAUDE.md in project root)' },
+                    },
+                },
+            },
+            {
+                name: 'ai_readiness',
+                description: 'Compute AI Readiness Score for the indexed project. Returns coverage metrics and improvement suggestions.',
+                inputSchema: { type: 'object', properties: {} },
+            },
+            {
                 name: 'get_context_contract',
                 description: 'Get latest context contract and drift status.',
                 inputSchema: {
@@ -562,6 +578,34 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                         text: JSON.stringify({ mode, merged: merged.text, contractHash, dbSig, gitHead, enrichableCards }, null, 2),
                     }],
                 };
+            }
+
+            case 'generate_claude_md': {
+                await ensureIndexed();
+                const { generateClaudeMd } = await import('./generate-claude-md.js');
+                const rootDir = (await import('./auto-index.js')).detectProjectRoot(process.cwd());
+                const content = generateClaudeMd(store, { rootDir });
+
+                if (args.output) {
+                    const outputPath = path.resolve(String(args.output));
+                    fs.writeFileSync(outputPath, content, 'utf-8');
+                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, path: outputPath, lines: content.split('\n').length }) }] };
+                }
+
+                if (args.stdout === false) {
+                    const outputPath = path.join(rootDir, 'CLAUDE.md');
+                    fs.writeFileSync(outputPath, content, 'utf-8');
+                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, path: outputPath, lines: content.split('\n').length }) }] };
+                }
+
+                return { content: [{ type: 'text', text: content }] };
+            }
+
+            case 'ai_readiness': {
+                await ensureIndexed();
+                const { computeAiReadiness } = await import('./generate-claude-md.js');
+                const readiness = computeAiReadiness(store);
+                return { content: [{ type: 'text', text: JSON.stringify(readiness, null, 2) }] };
             }
 
             case 'get_context_contract': {
