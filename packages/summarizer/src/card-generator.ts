@@ -99,25 +99,24 @@ export class CardGenerator {
                 };
             }
         } else {
-            // Deterministic Fallback
-            // Pick anchors for exported symbols
+            // Deterministic Fallback with smart purpose generation
             const publicSymbols = symbols.filter(s => s.visibility === 'public');
             const selectedAnchors = anchors.filter(a =>
                 publicSymbols.some(s => s.startLine === a.startLine && s.endLine === a.endLine)
             );
-            // If none, take top 3 largest
             if (selectedAnchors.length === 0 && anchors.length > 0) {
-                // Sort by size
                 const sorted = [...anchors].sort((a, b) => (b.endLine - b.startLine) - (a.endLine - a.startLine));
                 selectedAnchors.push(...sorted.slice(0, 3));
             }
 
+            const purpose = this.generateSmartPurpose(path, symbols, exports);
+
             level1 = {
-                purpose: 'Auto-generated (LLM Disabled)',
+                purpose,
                 publicApi: exports,
                 sideEffects: [],
                 dependencies: [],
-                notes: 'Deterministic Fallback',
+                notes: 'Awaiting AI enrichment',
                 evidenceAnchorIds: selectedAnchors.map(a => a.id)
             };
         }
@@ -225,6 +224,49 @@ export class CardGenerator {
         }
 
         return Array.from(envMap.values());
+    }
+
+    private generateSmartPurpose(filePath: string, symbols: CodeSymbol[], exports: string[]): string {
+        const basename = nodePath.basename(filePath).replace(/\.[^.]+$/, '');
+        const dirName = nodePath.basename(nodePath.dirname(filePath));
+
+        // Humanize file name: "card-generator" → "Card generator", "authService" → "Auth service"
+        const humanName = basename
+            .replace(/[-_]/g, ' ')
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .toLowerCase()
+            .replace(/^\w/, c => c.toUpperCase());
+
+        // Count symbols by kind
+        const kindCounts = new Map<string, number>();
+        for (const sym of symbols) {
+            kindCounts.set(sym.kind, (kindCounts.get(sym.kind) || 0) + 1);
+        }
+
+        // Build kind summary: "2 functions, 1 class"
+        const kindParts: string[] = [];
+        const kindOrder: Array<[string, string]> = [['class', 'class'], ['function', 'function'], ['method', 'method'], ['type', 'type'], ['const', 'constant']];
+        for (const [kind, label] of kindOrder) {
+            const count = kindCounts.get(kind);
+            if (count) kindParts.push(`${count} ${label}${count > 1 ? (label.endsWith('s') ? 'es' : 's') : ''}`);
+        }
+
+        // Build purpose
+        const topExports = exports.slice(0, 3).join(', ');
+        const moreCount = exports.length > 3 ? ` +${exports.length - 3} more` : '';
+        const kindSummary = kindParts.length > 0 ? ` (${kindParts.join(', ')})` : '';
+
+        if (exports.length > 0) {
+            return `${humanName}: exports ${topExports}${moreCount}${kindSummary}`;
+        }
+
+        if (symbols.length > 0) {
+            const topSymbols = symbols.slice(0, 3).map(s => s.name).join(', ');
+            return `${humanName}: defines ${topSymbols}${kindSummary}`;
+        }
+
+        // Minimal fallback
+        return `${humanName} module (${dirName})`;
     }
 
     generateSymbolCard(symbol: CodeSymbol): SymbolCard {

@@ -555,10 +555,11 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 if (sessionId) store.setState('last_bootstrap_at', new Date().toISOString(), sessionId);
                 else store.setState('last_bootstrap_at', new Date().toISOString());
 
+                const enrichableCards = bootPackBuilder.countEnrichableCards();
                 return {
                     content: [{
                         type: 'text',
-                        text: JSON.stringify({ mode, merged: merged.text, contractHash, dbSig, gitHead }, null, 2),
+                        text: JSON.stringify({ mode, merged: merged.text, contractHash, dbSig, gitHead, enrichableCards }, null, 2),
                     }],
                 };
             }

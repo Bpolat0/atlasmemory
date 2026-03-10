@@ -241,6 +241,8 @@ export class BootPackBuilder {
     }
 
     buildHandshake(budget: number): RenderResult {
+        const enrichableCount = this.countEnrichableCards();
+
         const lines = [
             '# AtlasMemory Session Handshake',
             '',
@@ -248,7 +250,16 @@ export class BootPackBuilder {
             '2) For each task: atlas taskpack "<objective>" --budget <n>',
             '3) If unsure, fetch evidence via anchorId/flowCardId before claiming details',
             '4) Do not hallucinate; cite evidence IDs in every non-trivial claim',
-            '5) For updates, generate delta: atlas deltapack --since last --budget 800'
+            '5) For updates, generate delta: atlas deltapack --since last --budget 800',
+            ...(enrichableCount > 0 ? [
+                '',
+                `## Memory Enrichment Available`,
+                `${enrichableCount} file(s) have auto-generated descriptions waiting for AI enrichment.`,
+                `To enrich: call refresh_cards_for_changed_files, then for each file:`,
+                `  1. Read the file and understand its purpose`,
+                `  2. Call upsert_file_card with a rich level1 (purpose, publicApi, sideEffects, dependencies)`,
+                `This makes the project memory smarter for all future sessions.`
+            ] : [])
         ];
 
         let text = lines.join('\n');
@@ -275,7 +286,11 @@ export class BootPackBuilder {
         });
 
         if (mode === 'fresh') {
-            const payload = `# Session Bootstrap (fresh)\n\n${boot.text}`;
+            const enrichable = this.countEnrichableCards();
+            const enrichSection = enrichable > 0
+                ? `\n\n## Action: Enrich Memory\n${enrichable} file(s) have auto-generated descriptions. Improve them:\n1. Call \`refresh_cards_for_changed_files\` to get the list\n2. For each file, read it and call \`upsert_file_card\` with rich descriptions\nThis is optional but makes future sessions much smarter.`
+                : '';
+            const payload = `# Session Bootstrap (fresh)\n\n${boot.text}${enrichSection}`;
             if (format === 'json') {
                 return {
                     text: JSON.stringify({
@@ -729,6 +744,17 @@ export class BootPackBuilder {
             topMissingDirs: Array.from(dirCounts.entries()).map(([dir, count]) => ({ dir, count })).sort((a, b) => b.count - a.count).slice(0, 8),
             topMissingExts: Array.from(extCounts.entries()).map(([ext, count]) => ({ ext, count })).sort((a, b) => b.count - a.count).slice(0, 8)
         };
+    }
+
+    countEnrichableCards(): number {
+        try {
+            const result = this.store.db.prepare(
+                "SELECT COUNT(*) as n FROM file_cards WHERE card_level1 LIKE '%Awaiting AI enrichment%'"
+            ).get() as { n: number };
+            return result.n;
+        } catch {
+            return 0;
+        }
     }
 
     private estimateTokens(text: string): number {
