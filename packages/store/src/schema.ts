@@ -134,6 +134,51 @@ export const SCHEMA = `
     FOREIGN KEY(symbol_id) REFERENCES symbols(id) ON DELETE CASCADE
   );
   
+  CREATE TABLE IF NOT EXISTS reverse_refs (
+    id TEXT PRIMARY KEY,
+    to_symbol_id TEXT NOT NULL,
+    from_symbol_id TEXT NOT NULL,
+    from_file_id TEXT NOT NULL,
+    ref_kind TEXT DEFAULT 'call',
+    anchor_id TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_reverse_refs_to ON reverse_refs(to_symbol_id);
+  CREATE INDEX IF NOT EXISTS idx_reverse_refs_from_file ON reverse_refs(from_file_id);
+
+  CREATE TABLE IF NOT EXISTS conversation_events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_conv_session ON conversation_events(session_id);
+  CREATE INDEX IF NOT EXISTS idx_conv_type ON conversation_events(event_type);
+
+  CREATE TABLE IF NOT EXISTS session_patterns (
+    id TEXT PRIMARY KEY,
+    pattern_type TEXT NOT NULL,
+    pattern_key TEXT NOT NULL,
+    pattern_data TEXT NOT NULL,
+    frequency INTEGER DEFAULT 1,
+    confidence REAL DEFAULT 0.5,
+    last_seen TEXT DEFAULT (datetime('now')),
+    UNIQUE(pattern_type, pattern_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_patterns_type ON session_patterns(pattern_type);
+  CREATE INDEX IF NOT EXISTS idx_patterns_freq ON session_patterns(frequency DESC);
+
+  CREATE TABLE IF NOT EXISTS token_usage (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    tokens_estimated INTEGER NOT NULL,
+    budget_total INTEGER,
+    budget_remaining INTEGER,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_token_session ON token_usage(session_id);
+
   -- FTS Tables (Porter stemmer enables matching "authentication" ↔ "authenticate")
   CREATE VIRTUAL TABLE IF NOT EXISTS fts_files USING fts5(path, content, file_id UNINDEXED, tokenize='porter unicode61');
   CREATE VIRTUAL TABLE IF NOT EXISTS fts_symbols USING fts5(name, qualified_name, signature, file_id UNINDEXED, tokenize='porter unicode61');

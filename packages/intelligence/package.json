@@ -1,0 +1,16 @@
+{
+    "name": "@atlasmemory/intelligence",
+    "version": "0.1.0",
+    "main": "dist/src/index.js",
+    "types": "dist/src/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "test": "echo \"no tests yet\" && exit 0"
+    },
+    "type": "module",
+    "dependencies": {
+        "@atlasmemory/core": "*",
+        "@atlasmemory/store": "*",
+        "@atlasmemory/retrieval": "*"
+    }
+}

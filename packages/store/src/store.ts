@@ -688,6 +688,203 @@ export class Store {
         this.db.prepare('DELETE FROM anchors WHERE file_id = ?').run(fileId);
     }
 
+    // ============================================================
+    // Phase 19: Intelligence Layer Store Methods
+    // ============================================================
+
+    // --- Reverse Refs ---
+    buildReverseRefs(): void {
+        this.db.exec('DELETE FROM reverse_refs');
+        this.db.exec(`
+            INSERT INTO reverse_refs (id, to_symbol_id, from_symbol_id, from_file_id, ref_kind, anchor_id)
+            SELECT r.id, r.to_symbol_id, r.from_symbol_id, s.file_id, r.ref_kind, r.anchor_id
+            FROM refs r
+            JOIN symbols s ON s.id = r.from_symbol_id
+            WHERE r.to_symbol_id IS NOT NULL
+        `);
+    }
+
+    getRefsTo(symbolId: string): import('@atlasmemory/core').ReverseRef[] {
+        return this.db.prepare(`
+            SELECT id, to_symbol_id, from_symbol_id, from_file_id, ref_kind, anchor_id
+            FROM reverse_refs WHERE to_symbol_id = ?
+        `).all(symbolId).map((row: any) => ({
+            id: row.id,
+            toSymbolId: row.to_symbol_id,
+            fromSymbolId: row.from_symbol_id,
+            fromFileId: row.from_file_id,
+            refKind: row.ref_kind,
+            anchorId: row.anchor_id || undefined,
+        }));
+    }
+
+    getRefsByName(symbolName: string): import('@atlasmemory/core').ReverseRef[] {
+        return this.db.prepare(`
+            SELECT r.id, s2.id as to_symbol_id, r.from_symbol_id, s1.file_id as from_file_id, r.ref_kind, r.anchor_id
+            FROM refs r
+            JOIN symbols s1 ON s1.id = r.from_symbol_id
+            JOIN symbols s2 ON s2.name = r.to_name
+            WHERE r.to_symbol_id IS NULL AND r.to_name = ?
+        `).all(symbolName).map((row: any) => ({
+            id: row.id,
+            toSymbolId: row.to_symbol_id,
+            fromSymbolId: row.from_symbol_id,
+            fromFileId: row.from_file_id,
+            refKind: row.ref_kind,
+            anchorId: row.anchor_id || undefined,
+        }));
+    }
+
+    getDependentFiles(fileId: string): import('@atlasmemory/core').DependentFile[] {
+        const rows = this.db.prepare(`
+            SELECT rr.from_file_id, f.path, COUNT(DISTINCT rr.from_symbol_id) as symbol_count, COUNT(*) as ref_count
+            FROM reverse_refs rr
+            JOIN symbols s ON s.id = rr.to_symbol_id AND s.file_id = ?
+            JOIN files f ON f.id = rr.from_file_id
+            WHERE rr.from_file_id != ?
+            GROUP BY rr.from_file_id
+            ORDER BY ref_count DESC
+        `).all(fileId, fileId) as any[];
+
+        return rows.map((row: any) => ({
+            fileId: row.from_file_id,
+            filePath: row.path,
+            symbolCount: row.symbol_count,
+            refCount: row.ref_count,
+            riskLevel: row.ref_count > 5 ? 'high' as const : row.ref_count > 2 ? 'medium' as const : 'low' as const,
+        }));
+    }
+
+    // --- Conversation Events ---
+    logEvent(sessionId: string, type: string, data: object): void {
+        const id = crypto.randomUUID();
+        this.db.prepare(`
+            INSERT INTO conversation_events (id, session_id, event_type, event_data)
+            VALUES (?, ?, ?, ?)
+        `).run(id, sessionId, type, JSON.stringify(data));
+    }
+
+    getSessionEvents(sessionId: string, opts?: { type?: string; limit?: number }): import('@atlasmemory/core').ConversationEvent[] {
+        const limit = opts?.limit || 100;
+        const rows = opts?.type
+            ? this.db.prepare('SELECT * FROM conversation_events WHERE session_id = ? AND event_type = ? ORDER BY created_at DESC LIMIT ?').all(sessionId, opts.type, limit)
+            : this.db.prepare('SELECT * FROM conversation_events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?').all(sessionId, limit);
+
+        return (rows as any[]).map((row: any) => ({
+            id: row.id,
+            sessionId: row.session_id,
+            eventType: row.event_type,
+            eventData: JSON.parse(row.event_data),
+            createdAt: row.created_at,
+        }));
+    }
+
+    getRecentEvents(limit: number = 50): import('@atlasmemory/core').ConversationEvent[] {
+        return this.db.prepare('SELECT * FROM conversation_events ORDER BY created_at DESC LIMIT ?').all(limit).map((row: any) => ({
+            id: row.id,
+            sessionId: row.session_id,
+            eventType: row.event_type,
+            eventData: JSON.parse(row.event_data),
+            createdAt: row.created_at,
+        }));
+    }
+
+    pruneOldEvents(daysOld: number = 30): number {
+        const result = this.db.prepare(`DELETE FROM conversation_events WHERE created_at < datetime('now', '-' || ? || ' days')`).run(daysOld);
+        return result.changes;
+    }
+
+    // --- Session Patterns ---
+    upsertPattern(type: string, key: string, data: object): void {
+        this.db.prepare(`
+            INSERT INTO session_patterns (id, pattern_type, pattern_key, pattern_data, frequency, confidence, last_seen)
+            VALUES (?, ?, ?, ?, 1, 0.5, datetime('now'))
+            ON CONFLICT(pattern_type, pattern_key) DO UPDATE SET
+                pattern_data = excluded.pattern_data,
+                frequency = frequency + 1,
+                confidence = MIN(1.0, (frequency + 1) * 0.1),
+                last_seen = datetime('now')
+        `).run(crypto.randomUUID(), type, key, JSON.stringify(data));
+    }
+
+    bumpPattern(type: string, key: string): void {
+        this.db.prepare(`
+            UPDATE session_patterns SET
+                frequency = frequency + 1,
+                confidence = MIN(1.0, (frequency + 1) * 0.1),
+                last_seen = datetime('now')
+            WHERE pattern_type = ? AND pattern_key = ?
+        `).run(type, key);
+    }
+
+    getPatterns(type: string, opts?: { minFreq?: number; minConfidence?: number }): import('@atlasmemory/core').SessionPattern[] {
+        const minFreq = opts?.minFreq || 1;
+        const minConf = opts?.minConfidence || 0;
+        return this.db.prepare(`
+            SELECT * FROM session_patterns
+            WHERE pattern_type = ? AND frequency >= ? AND confidence >= ?
+            ORDER BY frequency DESC
+        `).all(type, minFreq, minConf).map((row: any) => ({
+            id: row.id,
+            patternType: row.pattern_type,
+            patternKey: row.pattern_key,
+            patternData: JSON.parse(row.pattern_data),
+            frequency: row.frequency,
+            confidence: row.confidence,
+            lastSeen: row.last_seen,
+        }));
+    }
+
+    getTopPatterns(limit: number = 20): import('@atlasmemory/core').SessionPattern[] {
+        return this.db.prepare('SELECT * FROM session_patterns ORDER BY frequency DESC LIMIT ?').all(limit).map((row: any) => ({
+            id: row.id,
+            patternType: row.pattern_type,
+            patternKey: row.pattern_key,
+            patternData: JSON.parse(row.pattern_data),
+            frequency: row.frequency,
+            confidence: row.confidence,
+            lastSeen: row.last_seen,
+        }));
+    }
+
+    decayPatterns(decayFactor: number = 0.8): void {
+        this.db.prepare(`
+            UPDATE session_patterns SET confidence = confidence * ?
+            WHERE last_seen < datetime('now', '-14 days')
+        `).run(decayFactor);
+        this.db.prepare(`DELETE FROM session_patterns WHERE confidence < 0.1`).run();
+    }
+
+    // --- Token Usage ---
+    logTokenUsage(sessionId: string, tool: string, tokens: number, budgetTotal?: number): void {
+        const id = crypto.randomUUID();
+        const remaining = budgetTotal ? budgetTotal - tokens : null;
+        this.db.prepare(`
+            INSERT INTO token_usage (id, session_id, tool_name, tokens_estimated, budget_total, budget_remaining)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `).run(id, sessionId, tool, tokens, budgetTotal || null, remaining);
+    }
+
+    getSessionTokens(sessionId: string): import('@atlasmemory/core').TokenUsageSummary {
+        const rows = this.db.prepare(
+            'SELECT tool_name, tokens_estimated, created_at FROM token_usage WHERE session_id = ? ORDER BY created_at'
+        ).all(sessionId) as any[];
+
+        const byTool: Record<string, number> = {};
+        let total = 0;
+        for (const row of rows) {
+            byTool[row.tool_name] = (byTool[row.tool_name] || 0) + row.tokens_estimated;
+            total += row.tokens_estimated;
+        }
+
+        return {
+            sessionId,
+            totalTokens: total,
+            byTool,
+            entries: rows.map((r: any) => ({ tool: r.tool_name, tokens: r.tokens_estimated, timestamp: r.created_at })),
+        };
+    }
+
     // --- Search ---
     searchFiles(query: string) {
         return this.db.prepare('SELECT * FROM files WHERE path LIKE ?').all(`%${query}%`);

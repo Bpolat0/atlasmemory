@@ -196,3 +196,112 @@ export interface CodeRef {
     kind: RefKind;
     anchorId?: string;
 }
+
+// ============================================================
+// Phase 19: Intelligence Layer Types
+// ============================================================
+
+export interface ReverseRef {
+    id: string;
+    toSymbolId: string;
+    fromSymbolId: string;
+    fromFileId: string;
+    refKind: string;
+    anchorId?: string;
+}
+
+export interface DependentFile {
+    fileId: string;
+    filePath: string;
+    symbolCount: number;
+    refCount: number;
+    riskLevel: 'high' | 'medium' | 'low';
+}
+
+export type EventType = 'search' | 'context_build' | 'file_access' | 'constraint' | 'decision' | 'impact_check';
+
+export interface ConversationEvent {
+    id: string;
+    sessionId: string;
+    eventType: EventType;
+    eventData: Record<string, unknown>;
+    createdAt: string;
+}
+
+export type PatternType = 'file_cooccurrence' | 'query_to_files' | 'hot_path' | 'search_refinement';
+
+export interface SessionPattern {
+    id: string;
+    patternType: PatternType;
+    patternKey: string;
+    patternData: Record<string, unknown>;
+    frequency: number;
+    confidence: number;
+    lastSeen: string;
+}
+
+export interface TokenUsageSummary {
+    sessionId: string;
+    totalTokens: number;
+    byTool: Record<string, number>;
+    entries: Array<{ tool: string; tokens: number; timestamp: string }>;
+}
+
+export interface ImpactReport {
+    targetSymbol: { id: string; name: string; filePath: string; startLine: number; endLine: number };
+    directDependents: DependentFile[];
+    transitiveDependents: DependentFile[];
+    affectedFlows: Array<{ flowId: string; summary: string }>;
+    affectedTests: string[];
+    riskLevel: 'critical' | 'high' | 'medium' | 'low';
+    totalAffectedFiles: number;
+    totalAffectedSymbols: number;
+    recommendation: string;
+}
+
+export interface PrefetchSuggestion {
+    fileId: string;
+    filePath: string;
+    reason: 'graph_neighbor' | 'cooccurrence_pattern' | 'query_pattern' | 'hot_path';
+    confidence: number;
+    previewSummary?: string;
+}
+
+export interface SymbolChange {
+    symbolName: string;
+    changeKind: 'added' | 'removed' | 'signature_changed' | 'body_changed';
+    oldSignature?: string;
+    newSignature?: string;
+    breakingChange: boolean;
+    dependentCount: number;
+}
+
+export interface SmartDiff {
+    filePath: string;
+    changeType: 'added' | 'modified' | 'deleted';
+    symbolChanges: SymbolChange[];
+    impactSummary: { affectedFiles: number; breakingChanges: number };
+    staleAnchors: Array<{ anchorId: string; oldHash: string }>;
+    affectedFlows: Array<{ flowId: string; summary: string }>;
+    testCoverage: { hasTests: boolean; testFiles: string[] };
+}
+
+export interface TokenBudgetReport {
+    sessionId: string;
+    totalUsed: number;
+    budgetLimit: number;
+    percentUsed: number;
+    byTool: Record<string, number>;
+    recommendation: string;
+    trend: 'increasing' | 'stable' | 'decreasing';
+}
+
+export interface ConversationContext {
+    sessionId: string;
+    activeConstraints: Array<{ text: string; createdAt: string }>;
+    recentDecisions: Array<{ text: string; relatedFiles: string[] }>;
+    currentObjective?: string;
+    filesAccessed: string[];
+    searchHistory: Array<{ query: string; resultCount: number }>;
+    tokenBudget?: TokenBudgetReport;
+}
