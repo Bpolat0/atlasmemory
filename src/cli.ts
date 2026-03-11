@@ -179,8 +179,10 @@ export function registerCliCommands(program: Command): void {
                 }
                 return;
             }
+            const cwd = process.cwd();
             for (const r of results) {
-                console.log(`  ${r.score.toFixed(1).padStart(5)}  ${r.file.path}`);
+                const relPath = path.relative(cwd, r.file.path).replace(/\\/g, '/');
+                console.log(`  ${r.score.toFixed(1).padStart(5)}  ${relPath}`);
             }
         });
 
