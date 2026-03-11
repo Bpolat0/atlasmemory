@@ -209,7 +209,10 @@ export function registerCliCommands(program: Command): void {
             const pack = builder.build(objective, fileIds, parseInt(options.budget), {
                 proof: options.proof,
             });
-            console.log(pack);
+            // Strip evidence UUIDs from CLI output (human-readable mode)
+            // Keep claim text but remove "| E:uuid,uuid,..." notation
+            const cleanPack = pack.replace(/ \| E:[a-f0-9,-]+/g, '');
+            console.log(cleanPack);
         });
 
     program.command('bootpack')
@@ -231,7 +234,7 @@ export function registerCliCommands(program: Command): void {
 
     program.command('deltapack')
         .description('Generate change-only capsule')
-        .requiredOption('--since <value>', 'Since (git sha | timestamp | last)')
+        .option('--since <value>', 'Since (git sha | timestamp | last)', 'last')
         .option('--budget <number>', 'Token budget', '800')
         .option('--format <type>', 'Output format', 'capsule')
         .option('--proof <mode>', 'Proof mode', 'warn')
@@ -441,7 +444,14 @@ export function registerCliCommands(program: Command): void {
             console.log('AtlasMemory Demo\n');
             console.log('Step 1: Indexing current directory...');
             const result = await autoIndex(s, cwd, { incremental: true });
-            console.log(`  Done: ${result.files} files, ${result.symbols} symbols\n`);
+            // Show total counts from DB (not just newly indexed, which is 0 on re-index)
+            const totalFiles = (s.db.prepare('SELECT COUNT(*) as n FROM files').get() as any).n;
+            const totalSymbols = (s.db.prepare('SELECT COUNT(*) as n FROM symbols').get() as any).n;
+            if (result.files > 0) {
+                console.log(`  Indexed ${result.files} new files (${totalFiles} total, ${totalSymbols} symbols)\n`);
+            } else {
+                console.log(`  Already indexed: ${totalFiles} files, ${totalSymbols} symbols\n`);
+            }
             console.log('Step 2: Searching for "main entry"...');
             const search = new SearchService(s);
             const searchResults = search.search('main entry', 3);

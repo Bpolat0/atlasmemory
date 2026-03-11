@@ -240,28 +240,26 @@ export class Store {
 
         const file = this.db.prepare('SELECT path FROM files WHERE id = ?').get(fileId) as any;
 
-        const level1 = row.card_level1 ? JSON.parse(row.card_level1) : undefined;
+        const safeJsonParse = (json: string | null | undefined, fallback: any = null) => {
+            if (!json) return fallback;
+            try { return JSON.parse(json); } catch { return fallback; }
+        };
+
+        const level1 = safeJsonParse(row.card_level1);
         if (level1 && row.evidence_anchors_json) {
-            try {
-                // Rename DB column conceptually or just usage
-                level1.evidenceAnchorIds = JSON.parse(row.evidence_anchors_json);
-            } catch (e) {
-                console.error('Failed to parse evidence_anchors_json', e);
-                // fallback to empty if corrupt
-                level1.evidenceAnchorIds = [];
-            }
+            level1.evidenceAnchorIds = safeJsonParse(row.evidence_anchors_json, []);
         }
 
         return {
             fileId,
             path: file?.path || '',
-            level0: JSON.parse(row.card_level0),
+            level0: safeJsonParse(row.card_level0, { purpose: '', exports: [], imports: [] }),
             level1,
-            level2: row.card_level2 ? JSON.parse(row.card_level2) : undefined,
-            level3: row.card_level3 ? JSON.parse(row.card_level3) : undefined,
+            level2: safeJsonParse(row.card_level2),
+            level3: safeJsonParse(row.card_level3),
             cardHash: row.card_hash,
             qualityScore: row.quality_score || 0,
-            qualityFlags: row.quality_flags_json ? JSON.parse(row.quality_flags_json) : []
+            qualityFlags: safeJsonParse(row.quality_flags_json, [])
         };
     }
 
@@ -283,8 +281,8 @@ export class Store {
 
         return {
             folderPath,
-            level0: JSON.parse(row.card_level0),
-            level1: row.card_level1 ? JSON.parse(row.card_level1) : undefined,
+            level0: (() => { try { return JSON.parse(row.card_level0); } catch { return { purpose: '' }; } })(),
+            level1: row.card_level1 ? (() => { try { return JSON.parse(row.card_level1); } catch { return undefined; } })() : undefined,
             updatedAt: row.updated_at
         };
     }
@@ -341,14 +339,15 @@ export class Store {
         const row = this.db.prepare('SELECT * FROM symbol_cards WHERE symbol_id = ?').get(symbolId) as any;
         if (!row) return undefined;
 
-        const level1 = row.card_level1 ? JSON.parse(row.card_level1) : undefined;
+        let level1: any;
+        try { level1 = row.card_level1 ? JSON.parse(row.card_level1) : undefined; } catch { level1 = undefined; }
         if (level1 && row.evidence_anchors_json) {
-            try { level1.evidenceAnchorIds = JSON.parse(row.evidence_anchors_json); } catch (e) { }
+            try { level1.evidenceAnchorIds = JSON.parse(row.evidence_anchors_json); } catch { level1.evidenceAnchorIds = []; }
         }
 
         return {
             symbolId,
-            level0: JSON.parse(row.card_level0),
+            level0: (() => { try { return JSON.parse(row.card_level0); } catch { return { purpose: '' }; } })(),
             level1
         };
     }
@@ -923,7 +922,9 @@ export class Store {
             .split(/\s+/)
             .filter(t => t.length >= 2);
 
+        const ALLOWED_FTS_TABLES = new Set(['fts_files', 'fts_symbols', 'fts_semantic_tags']);
         const ftsSearch = (table: string, safeQuery: string, scoreMultiplier: number) => {
+            if (!ALLOWED_FTS_TABLES.has(table)) return; // Guard against injection
             try {
                 const matches = this.db.prepare(`
                     SELECT file_id, rank

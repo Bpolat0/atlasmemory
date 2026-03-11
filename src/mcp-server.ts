@@ -461,9 +461,12 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
         try { switch (request.params.name) {
             case 'search_repo': {
+                const query = String(args.query || '').trim();
+                if (!query) {
+                    return { content: [{ type: 'text', text: 'Please provide a search query. Example: search_repo({query: "authentication"})' }], isError: true };
+                }
                 await ensureIndexed();
                 await ensureCodeHealth();
-                const query = String(args.query);
                 const results = searchService.search(query);
 
                 // Log search event
@@ -660,7 +663,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const bcMode = args.mode as string;
                 switch (bcMode) {
                     case 'task': {
-                        if (!args.objective) return { content: [{ type: 'text', text: 'Error: "objective" required for task mode' }] };
+                        if (!args.objective) return { content: [{ type: 'text', text: 'Error: "objective" required for task mode. Example: build_context({mode: "task", objective: "fix auth bug"})' }], isError: true };
                         const bcObjective = String(args.objective);
                         const bcBudget = Number(args.budget || 8000);
                         const bcProof = (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string;
@@ -1006,6 +1009,9 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             }
 
             case 'remember': {
+                if (!args.type || !args.text) {
+                    return { content: [{ type: 'text', text: 'Missing required parameters: "type" (constraint|decision) and "text".' }], isError: true };
+                }
                 const sessionId = args.session_id ? String(args.session_id) : 'default';
                 const memType = String(args.type);
                 const text = String(args.text);
