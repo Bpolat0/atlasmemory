@@ -130,8 +130,8 @@ function collectProjectData(store: Store, rootDir: string): ProjectData {
     const keyFiles = fileSymbolCounts
         .sort((a, b) => {
             // Deprioritize test/example/spec files — source files are more important
-            const aIsTest = /\b(test|spec|__tests__|examples?|fixtures?|mocks?)\b/i.test(a.relPath);
-            const bIsTest = /\b(test|spec|__tests__|examples?|fixtures?|mocks?)\b/i.test(b.relPath);
+            const aIsTest = /\b(tests?|specs?|__tests__|examples?|fixtures?|mocks?|__mocks__)\b/i.test(a.relPath);
+            const bIsTest = /\b(tests?|specs?|__tests__|examples?|fixtures?|mocks?|__mocks__)\b/i.test(b.relPath);
             if (aIsTest !== bIsTest) return aIsTest ? 1 : -1;
             return b.symbolCount - a.symbolCount;
         })

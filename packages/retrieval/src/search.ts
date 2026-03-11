@@ -97,7 +97,7 @@ export class SearchService {
         }
 
         // Deprioritize test/example/fixture files — source code is more relevant
-        const TEST_PATH_RE = /\b(test|spec|__tests__|examples?|fixtures?|mocks?|__mocks__)\b/i;
+        const TEST_PATH_RE = /\b(tests?|specs?|__tests__|examples?|fixtures?|mocks?|__mocks__)\b/i;
         for (const item of finalResults.values()) {
             if (TEST_PATH_RE.test(item.file.path)) {
                 item.score *= 0.6;

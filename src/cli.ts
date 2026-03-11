@@ -438,7 +438,10 @@ export function registerCliCommands(program: Command): void {
             const search = new SearchService(s);
             const searchResults = search.search('main entry', 3);
             if (searchResults.length > 0) {
-                for (const r of searchResults) console.log(`  ${r.file.path} (score: ${r.score})`);
+                for (const r of searchResults) {
+                    const relPath = path.relative(cwd, r.file.path).replace(/\\/g, '/');
+                    console.log(`  ${relPath} (score: ${r.score.toFixed(1)})`);
+                }
             } else {
                 console.log('  (no results for this query)');
             }
@@ -446,9 +449,12 @@ export function registerCliCommands(program: Command): void {
             const readiness = computeAiReadiness(s);
             console.log(`  ${renderReadinessBar(readiness.overall)}`);
             console.log('\nStep 4: Proof System (evidence anchors)...');
-            const anchors = s.db.prepare('SELECT a.*, f.path as file_path FROM anchors a JOIN files f ON a.file_id = f.id LIMIT 3').all() as any[];
+            const anchors = s.db.prepare('SELECT a.*, f.path as file_path FROM anchors a JOIN files f ON a.file_id = f.id ORDER BY RANDOM() LIMIT 5').all() as any[];
             if (anchors.length > 0) {
-                for (const a of anchors) console.log(`  ${a.file_path}:${a.start_line}-${a.end_line} [hash:${a.snippet_hash?.slice(0, 8)}]`);
+                for (const a of anchors) {
+                    const relAnchorPath = path.relative(cwd, a.file_path).replace(/\\/g, '/');
+                    console.log(`  ${relAnchorPath}:${a.start_line}-${a.end_line} [hash:${a.snippet_hash?.slice(0, 8)}]`);
+                }
             }
             console.log('\nAtlasMemory is ready! Try: atlasmemory search "authentication"');
         });
