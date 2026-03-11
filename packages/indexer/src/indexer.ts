@@ -91,6 +91,14 @@ export class Indexer {
         }
     }
 
+    /** Returns list of supported language extensions and which ones are actually loaded */
+    getLanguageStatus(): { loaded: string[], missing: string[] } {
+        const allLangs = ['ts', 'js', 'jsx', 'tsx', 'py', 'go', 'rs', 'java', 'cs', 'rb', 'c', 'cpp', 'php'];
+        const loaded = allLangs.filter(ext => !!this.parsers[ext]);
+        const missing = allLangs.filter(ext => !this.parsers[ext]);
+        return { loaded, missing };
+    }
+
     parse(filePath: string, content: string): { symbols: CodeSymbol[], anchors: import('@atlasmemory/core').Anchor[], imports: import('@atlasmemory/core').Import[], refs: import('@atlasmemory/core').CodeRef[] } {
         const ext = filePath.split('.').pop();
         if (!ext || !this.parsers[ext]) return { symbols: [], anchors: [], imports: [], refs: [] };

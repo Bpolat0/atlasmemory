@@ -11,6 +11,7 @@ const EXCLUDED_DIRS = new Set([
 ]);
 
 const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/];
+const MAX_FILE_SIZE = 1024 * 1024; // 1MB — skip generated/vendored files
 const CODE_EXTENSIONS = new Set([
     '.ts', '.tsx', '.js', '.jsx', '.py',           // TS/JS/Python
     '.go', '.rs', '.java', '.cs',                   // Go/Rust/Java/C#
@@ -75,6 +76,10 @@ export async function autoIndex(
         }
     }
 
+    // Track visited real paths to prevent symlink cycles
+    const visitedDirs = new Set<string>();
+    let skippedLarge = 0;
+
     async function walk(dir: string) {
         let entries;
         try {
@@ -88,6 +93,17 @@ export async function autoIndex(
 
             if (entry.isDirectory()) {
                 if (EXCLUDED_DIRS.has(entry.name)) continue;
+
+                // Symlink cycle protection: resolve real path and skip if already visited
+                let realDir: string;
+                try {
+                    realDir = fs.realpathSync(fullPath);
+                } catch {
+                    continue; // Broken symlink — skip
+                }
+                if (visitedDirs.has(realDir)) continue;
+                visitedDirs.add(realDir);
+
                 const lower = fullPath.replace(/\\/g, '/').toLowerCase();
                 if (lower.includes('/synth-') || lower.includes('/reports/')) continue;
                 const relDir = path.relative(rootDir, fullPath);
@@ -105,6 +121,15 @@ export async function autoIndex(
                         : fullPath.replace(/\.jsx$/, '.tsx');
                     if (fs.existsSync(tsCounterpart)) continue;
                 }
+
+                // Skip files larger than 1MB (likely generated/vendored)
+                try {
+                    const stat = fs.statSync(fullPath);
+                    if (stat.size > MAX_FILE_SIZE) {
+                        skippedLarge++;
+                        continue;
+                    }
+                } catch { continue; }
 
                 const relPath = path.relative(rootDir, fullPath);
                 if (shouldIgnore(relPath, ignorePatterns)) continue;
@@ -151,7 +176,7 @@ export async function autoIndex(
 
     await walk(rootDir);
     store.setState('last_index_at', new Date().toISOString());
-    return { files: fileCount, symbols: symbolCount, skipped };
+    return { files: fileCount, symbols: symbolCount, skipped, skippedLarge };
 }
 
 export function isDbEmpty(store: Store): boolean {

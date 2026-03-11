@@ -118,13 +118,24 @@ export class CodeHealthAnalyzer {
 
     /** Full repo analysis: parse git log, compute health, store in DB */
     async analyzeRepo(): Promise<CodeDNA[]> {
+        // Check git availability
+        try {
+            execSync('git --version', { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
+        } catch {
+            process.stderr.write('[atlasmemory] Warning: git not found — code health analysis skipped\n');
+            return [];
+        }
+
         let logOutput: string;
         try {
             logOutput = execSync(
                 'git log --max-count=1000 --format="%H%x09%an%x09%aI" --name-only',
                 { cwd: this.repoPath, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
             );
-        } catch (e) { return []; }
+        } catch (e) {
+            process.stderr.write('[atlasmemory] Warning: git log failed — not a git repository?\n');
+            return [];
+        }
 
         let messageOutput: string;
         try {

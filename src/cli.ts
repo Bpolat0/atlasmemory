@@ -10,6 +10,7 @@ import type { GenerateFormat } from './generate-claude-md.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { execSync } from 'child_process';
 
 let store: Store;
 
@@ -140,7 +141,14 @@ export function registerCliCommands(program: Command): void {
             console.log(`  [OK] ${symbolCount} symbols extracted, ${exportCount} public exports`);
             console.log(`  [OK] ${flowCount} call flows traced`);
             if (result.skipped > 0) console.log(`  [--] ${result.skipped} unchanged files skipped`);
+            if (result.skippedLarge > 0) console.log(`  [--] ${result.skippedLarge} files skipped (>1MB, likely generated)`);
             console.log(`  [DB] ${path.resolve(process.env.ATLAS_DB_PATH || '.atlas/atlas.db')}`);
+
+            if (result.files === 0 && result.skipped === 0) {
+                console.log('\n  Warning: No source files found.');
+                console.log('  Check that the directory contains supported files (.ts, .js, .py, .go, .rs, .java, etc.)');
+                console.log('  Or check your .atlasignore for overly broad patterns.');
+            }
 
             // AI Readiness Score
             const readiness = computeAiReadiness(store);
@@ -505,12 +513,31 @@ export function registerCliCommands(program: Command): void {
             console.log(`    FTS Symbols: ${ftsSymbols.n}`);
             console.log('');
 
+            // Language grammars
+            const indexer = new Indexer();
+            const langStatus = indexer.getLanguageStatus();
+            console.log(`  Grammars:      ${langStatus.loaded.join(', ')}`);
+            if (langStatus.missing.length > 0) {
+                console.log(`  Missing:       ${langStatus.missing.join(', ')} (install tree-sitter-* packages)`);
+            }
+            console.log('');
+
+            // Git availability
+            let gitAvailable = false;
+            try {
+                execSync('git --version', { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
+                gitAvailable = true;
+            } catch {}
+            console.log(`  Git:           ${gitAvailable ? 'YES' : 'NO (smart_diff, code_health unavailable)'}`);
+
             const issues: string[] = [];
             if (files.n === 0) issues.push('No files indexed. Run: atlasmemory index .');
             if (files.n > 0 && fileCards.n === 0) issues.push('Files indexed but no cards generated.');
             if (files.n > 0 && ftsFiles.n === 0) issues.push('FTS index empty. Re-index: atlasmemory index .');
             if (!hasFtsStemmer) issues.push('FTS missing Porter stemmer. Delete .atlas/atlas.db and re-index.');
             if (files.n > 0 && symbols.n === 0) issues.push('No symbols found. Check if files have supported extensions (.ts/.js/.py).');
+            if (!gitAvailable) issues.push('Git not found. Install git for smart_diff and code health analysis.');
+            if (langStatus.missing.length > 0) issues.push(`Missing grammars: ${langStatus.missing.join(', ')}. Install npm packages to index those languages.`);
             const coverage = files.n > 0 ? (fileCards.n / files.n * 100).toFixed(0) : '0';
             console.log(`  Card Coverage: ${coverage}%`);
 

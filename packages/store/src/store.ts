@@ -8,6 +8,10 @@ export class Store {
 
     constructor(dbPath: string) {
         this.db = new Database(dbPath);
+        // WAL mode: allows concurrent reads + single writer without blocking
+        this.db.pragma('journal_mode = WAL');
+        // Wait up to 30s if DB is locked by another process (CLI + MCP simultaneously)
+        this.db.pragma('busy_timeout = 30000');
         this.init();
     }
 
@@ -20,30 +24,42 @@ export class Store {
             .replace(/-/g, ' ');                      // kebab-case → kebab case
     }
 
+    // Current schema version — increment when schema changes
+    private static readonly SCHEMA_VERSION = 5;
+
     private init() {
+        const currentVersion = (this.db.pragma('user_version', { simple: true }) as number) || 0;
+
         // Migrate old FTS tables to Porter stemmer (drop and let SCHEMA recreate)
-        try {
-            const row = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='fts_files'").get() as { sql: string } | undefined;
-            if (row && !row.sql.includes('porter')) {
-                this.db.exec('DROP TABLE IF EXISTS fts_files');
-                this.db.exec('DROP TABLE IF EXISTS fts_symbols');
-            }
-        } catch (e) { /* fresh DB, no migration needed */ }
+        if (currentVersion < 2) {
+            try {
+                const row = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='fts_files'").get() as { sql: string } | undefined;
+                if (row && !row.sql.includes('porter')) {
+                    this.db.exec('DROP TABLE IF EXISTS fts_files');
+                    this.db.exec('DROP TABLE IF EXISTS fts_symbols');
+                }
+            } catch (e) { /* fresh DB, no migration needed */ }
+        }
 
         this.db.exec(SCHEMA);
-        // Migration for Phase 7A
-        try {
-            this.db.prepare("ALTER TABLE file_cards ADD COLUMN quality_score REAL DEFAULT 0").run();
-        } catch (e) { /* ignore if exists */ }
-        try {
-            this.db.prepare("ALTER TABLE file_cards ADD COLUMN quality_flags_json TEXT").run();
-        } catch (e) { /* ignore if exists */ }
-        try {
-            this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level2 TEXT").run();
-        } catch (e) { /* ignore if exists */ }
-        try {
-            this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level3 TEXT").run();
-        } catch (e) { /* ignore if exists */ }
+
+        // Run all migrations in a transaction for safety
+        this.db.transaction(() => {
+            // Migration v1→v2: Phase 7A columns
+            if (currentVersion < 2) {
+                try { this.db.prepare("ALTER TABLE file_cards ADD COLUMN quality_score REAL DEFAULT 0").run(); } catch { }
+                try { this.db.prepare("ALTER TABLE file_cards ADD COLUMN quality_flags_json TEXT").run(); } catch { }
+            }
+            // Migration v2→v3: Level2/Level3 cards
+            if (currentVersion < 3) {
+                try { this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level2 TEXT").run(); } catch { }
+                try { this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level3 TEXT").run(); } catch { }
+            }
+            // v4, v5: new tables handled by SCHEMA (CREATE IF NOT EXISTS)
+
+            // Stamp current version
+            this.db.pragma(`user_version = ${Store.SCHEMA_VERSION}`);
+        })();
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS flow_cards (
                 id TEXT PRIMARY KEY,

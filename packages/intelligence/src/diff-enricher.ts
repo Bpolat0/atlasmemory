@@ -16,6 +16,9 @@ export class DiffEnricher {
 
         let output: string;
         try {
+            // Verify git is available
+            execSync('git --version', { encoding: 'utf-8', timeout: 5000, stdio: 'pipe' });
+
             output = execSync(`git diff --name-status ${ref}`, {
                 encoding: 'utf-8',
                 timeout: 10000,

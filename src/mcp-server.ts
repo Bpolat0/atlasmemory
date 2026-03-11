@@ -63,11 +63,16 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         if (!isDbEmpty(store)) return;
         if (indexPromise) { await indexPromise; return; }
         indexPromise = (async () => {
-            const rootDir = detectProjectRoot(process.cwd());
-            const result = await autoIndex(store, rootDir);
-            process.stderr.write(
-                `[atlasmemory] Auto-indexed ${result.files} files, ${result.symbols} symbols\n`
-            );
+            try {
+                const rootDir = detectProjectRoot(process.cwd());
+                const result = await autoIndex(store, rootDir);
+                process.stderr.write(
+                    `[atlasmemory] Auto-indexed ${result.files} files, ${result.symbols} symbols\n`
+                );
+            } catch (error: any) {
+                indexPromise = null; // Reset so future calls can retry
+                throw error;
+            }
         })();
         await indexPromise;
     }
@@ -454,7 +459,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const args = request.params.arguments || {};
 
-        switch (request.params.name) {
+        try { switch (request.params.name) {
             case 'search_repo': {
                 await ensureIndexed();
                 await ensureCodeHealth();
@@ -1071,8 +1076,25 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             }
 
             default:
-                throw new Error(`Unknown tool: ${request.params.name}`);
+                return { content: [{ type: 'text', text: `Unknown tool: ${request.params.name}. Use tools/list to see available tools.` }], isError: true };
         }
+        } catch (error: any) {
+            const toolName = request.params.name || 'unknown';
+            const message = error?.message || String(error);
+            process.stderr.write(`[atlasmemory] Error in ${toolName}: ${message}\n`);
+            return {
+                content: [{ type: 'text', text: `Internal error in ${toolName}: ${message}\n\nTry running 'index_repo' to rebuild the index, or check 'atlasmemory doctor' for diagnostics.` }],
+                isError: true,
+            };
+        }
+    });
+
+    // Global error handlers — prevent silent crashes
+    process.on('uncaughtException', (error) => {
+        process.stderr.write(`[atlasmemory] Uncaught exception: ${error.message}\n`);
+    });
+    process.on('unhandledRejection', (reason) => {
+        process.stderr.write(`[atlasmemory] Unhandled rejection: ${reason}\n`);
     });
 
     const transport = new StdioServerTransport();
