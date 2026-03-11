@@ -92,6 +92,14 @@ export async function autoIndex(
                 if (!CODE_EXTENSIONS.has(ext)) continue;
                 if (EXCLUDED_PATTERNS.some(p => p.test(entry.name))) continue;
 
+                // Skip .js/.jsx files when a .ts/.tsx counterpart exists (compiled output)
+                if (ext === '.js' || ext === '.jsx') {
+                    const tsCounterpart = ext === '.js'
+                        ? fullPath.replace(/\.js$/, '.ts')
+                        : fullPath.replace(/\.jsx$/, '.tsx');
+                    if (fs.existsSync(tsCounterpart)) continue;
+                }
+
                 const relPath = path.relative(rootDir, fullPath);
                 if (shouldIgnore(relPath, ignorePatterns)) continue;
 
