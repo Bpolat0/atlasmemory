@@ -52,6 +52,12 @@ export async function autoIndex(
     rootDir: string,
     opts?: AutoIndexOptions
 ): Promise<{ files: number; symbols: number; skipped: number }> {
+    // Normalize drive letter casing on Windows to prevent duplicate entries
+    // e.g., "c:\Dev" vs "C:\Dev" would create separate file entries
+    if (process.platform === 'win32' && /^[a-z]:/.test(rootDir)) {
+        rootDir = rootDir[0].toUpperCase() + rootDir.slice(1);
+    }
+
     const indexer = new Indexer();
     const generator = new CardGenerator();
     const flowGenerator = new FlowGenerator(store);
@@ -154,6 +160,10 @@ export function isDbEmpty(store: Store): boolean {
 
 export function detectProjectRoot(cwd: string): string {
     let dir = path.resolve(cwd);
+    // Normalize drive letter casing on Windows
+    if (process.platform === 'win32' && /^[a-z]:/.test(dir)) {
+        dir = dir[0].toUpperCase() + dir.slice(1);
+    }
     while (dir !== path.dirname(dir)) {
         if (fs.existsSync(path.join(dir, '.git')) ||
             fs.existsSync(path.join(dir, 'package.json'))) {

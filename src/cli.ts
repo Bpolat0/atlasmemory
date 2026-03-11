@@ -449,7 +449,13 @@ export function registerCliCommands(program: Command): void {
             const readiness = computeAiReadiness(s);
             console.log(`  ${renderReadinessBar(readiness.overall)}`);
             console.log('\nStep 4: Proof System (evidence anchors)...');
-            const anchors = s.db.prepare('SELECT a.*, f.path as file_path FROM anchors a JOIN files f ON a.file_id = f.id ORDER BY RANDOM() LIMIT 5').all() as any[];
+            // Pick anchors from diverse files for a better demo
+            const anchors = s.db.prepare(`
+                SELECT a.*, f.path as file_path FROM anchors a
+                JOIN files f ON a.file_id = f.id
+                GROUP BY a.file_id
+                ORDER BY RANDOM() LIMIT 5
+            `).all() as any[];
             if (anchors.length > 0) {
                 for (const a of anchors) {
                     const relAnchorPath = path.relative(cwd, a.file_path).replace(/\\/g, '/');

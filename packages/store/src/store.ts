@@ -980,7 +980,22 @@ export class Store {
         const placeholders = allIds.map(() => '?').join(',');
         const files = this.db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...allIds) as any[];
 
-        return files.map(file => {
+        // Deduplicate files with same path (different casing on Windows)
+        const seenPaths = new Map<string, any>();
+        const dedupedFiles: any[] = [];
+        for (const file of files) {
+            const key = file.path.toLowerCase();
+            if (seenPaths.has(key)) {
+                // Merge scores into existing entry
+                const existing = seenPaths.get(key)!;
+                scores.set(existing.id, (scores.get(existing.id) || 0) + (scores.get(file.id) || 0));
+            } else {
+                seenPaths.set(key, file);
+                dedupedFiles.push(file);
+            }
+        }
+
+        return dedupedFiles.map(file => {
             let score = scores.get(file.id) || 0;
             const pathLower = file.path.toLowerCase();
             const fileName = pathLower.split(/[/\\]/).pop() || '';
