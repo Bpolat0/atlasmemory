@@ -68,8 +68,9 @@ export class SessionLearner {
             }
         }
 
-        // Decay old patterns
+        // Decay old patterns + prune old events to prevent unbounded growth
         this.store.decayPatterns(0.8);
+        this.store.pruneOldEvents(30);
 
         return { patternsUpdated };
     }

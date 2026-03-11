@@ -130,7 +130,7 @@ export class CodeHealthAnalyzer {
         try {
             logOutput = execSync(
                 'git log --max-count=1000 --format="%H%x09%an%x09%aI" --name-only',
-                { cwd: this.repoPath, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
+                { cwd: this.repoPath, encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, timeout: 30000 }
             );
         } catch (e) {
             process.stderr.write('[atlasmemory] Warning: git log failed — not a git repository?\n');
@@ -141,7 +141,7 @@ export class CodeHealthAnalyzer {
         try {
             messageOutput = execSync(
                 'git log --max-count=1000 --format="%H%x09%s"',
-                { cwd: this.repoPath, encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024 }
+                { cwd: this.repoPath, encoding: 'utf-8', maxBuffer: 5 * 1024 * 1024, timeout: 15000 }
             );
         } catch (e) { messageOutput = ''; }
 

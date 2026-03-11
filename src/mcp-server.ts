@@ -563,6 +563,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 store.addFileCard(fileCard);
                 store.setState('last_index_at', new Date().toISOString());
                 reverseRefsBuilt = false;
+                codeHealthAnalyzed = false;
 
                 return {
                     content: [{

@@ -140,23 +140,33 @@ export class Indexer {
         // Better approach: Iterate captures and check name
         // Process captures for Symbols first (to establish scope)
         for (const capture of captures) {
-            if (['function', 'class', 'method', 'interface', 'type'].includes(capture.name)) {
+            if (['function', 'class', 'method', 'interface', 'type', 'const'].includes(capture.name)) {
                 const node = capture.node;
-                let nameNode = null;
-                const cursor = node.walk();
+                let nameText: string | null = null;
 
-                // Find name node
-                if (cursor.gotoFirstChild()) {
-                    do {
-                        if (cursor.currentFieldName === 'name') {
-                            nameNode = cursor.currentNode;
-                            break;
-                        }
-                    } while (cursor.gotoNextSibling());
+                // First try: find @name capture that is a descendant of this node
+                for (const nc of captures) {
+                    if (nc.name === 'name' && nc.node.startIndex >= node.startIndex && nc.node.endIndex <= node.endIndex) {
+                        nameText = nc.node.text;
+                        break;
+                    }
                 }
-                if (!nameNode) continue;
 
-                const name = nameNode.text;
+                // Fallback: walk the node tree to find name field
+                if (!nameText) {
+                    const cursor = node.walk();
+                    if (cursor.gotoFirstChild()) {
+                        do {
+                            if (cursor.currentFieldName === 'name') {
+                                nameText = cursor.currentNode.text;
+                                break;
+                            }
+                        } while (cursor.gotoNextSibling());
+                    }
+                }
+                if (!nameText) continue;
+
+                const name = nameText;
                 const kind = capture.name as any;
                 const signature = node.text.split('\n')[0];
                 const signatureHash = crypto.createHash('sha256').update(signature).digest('hex');
@@ -188,7 +198,7 @@ export class Indexer {
                 const node = capture.node;
                 let moduleName = node.text;
 
-                if (ext === 'ts' && (moduleName.startsWith("'") || moduleName.startsWith('"'))) {
+                if (moduleName.startsWith("'") || moduleName.startsWith('"')) {
                     moduleName = moduleName.slice(1, -1);
                 }
 

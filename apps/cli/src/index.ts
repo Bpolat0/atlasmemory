@@ -10,6 +10,12 @@ import crypto from 'crypto';
 
 const program = new Command();
 
+/** Parse integer from CLI option, returning fallback if NaN */
+const safeParseInt = (value: string, fallback: number): number => {
+    const n = parseInt(value, 10);
+    return isNaN(n) ? fallback : n;
+};
+
 // Global store instance (lazy initialized)
 let store: Store;
 
@@ -280,7 +286,7 @@ program.command('taskpack <objective>')
 
         // Use scored search (with Graph Proximity) for better relevance
         console.log('Searching with Graph Proximity...');
-        const scoredResults = service.search(objective, parseInt(options.limit));
+        const scoredResults = service.search(objective, safeParseInt(options.limit, 20));
         console.log(`Found ${scoredResults.length} relevant files for objective: "${objective}"`);
 
         scoredResults.forEach(r => console.log(` - ${r.file.path} (score: ${r.score.toFixed(1)})`));
@@ -302,9 +308,9 @@ program.command('taskpack <objective>')
             folderCards.push(folderCard);
         }
 
-        const pack = builder.build(objective, fileIds, parseInt(options.budget), {
+        const pack = builder.build(objective, fileIds, safeParseInt(options.budget, 12000), {
             includeDts: options.includeDts,
-            snippetMaxLines: parseInt(options.snippetMaxLines),
+            snippetMaxLines: safeParseInt(options.snippetMaxLines, 30),
             folderCards,
             proof: options.proof,
             allowUnproven: options.allowUnproven
@@ -322,7 +328,7 @@ program.command('bootpack')
         const store = getStore();
         const builder = new BootPackBuilder(store);
         const result = builder.buildBootPack({
-            budget: parseInt(options.budget),
+            budget: safeParseInt(options.budget, 1500),
             format: options.format,
             compress: options.compress,
             proof: options.proof
@@ -341,7 +347,7 @@ program.command('deltapack')
         const builder = new BootPackBuilder(store);
         const result = builder.buildDeltaPack({
             since: options.since,
-            budget: parseInt(options.budget),
+            budget: safeParseInt(options.budget, 800),
             format: options.format,
             proof: options.proof
         });
@@ -354,7 +360,7 @@ program.command('handshake')
     .action((options) => {
         const store = getStore();
         const builder = new BootPackBuilder(store);
-        const result = builder.buildHandshake(parseInt(options.budget));
+        const result = builder.buildHandshake(safeParseInt(options.budget, 400));
         console.log(result.text);
     });
 
@@ -386,14 +392,14 @@ program.command('refresh')
 
         if (options.auto) {
             console.log('Auto-refreshing stale cards...');
-            const stats = await refresher.refreshAll(parseInt(options.limit));
+            const stats = await refresher.refreshAll(safeParseInt(options.limit, 10));
             console.log(`Refreshed ${stats.generated} cards. Failed: ${stats.failed}`);
             if (stats.errors.length > 0) {
                 console.log('Errors:', stats.errors);
             }
         } else {
             console.log('Checking for stale files...');
-            const stale = await refresher.findStaleFiles(parseInt(options.limit));
+            const stale = await refresher.findStaleFiles(safeParseInt(options.limit, 10));
             if (stale.length === 0) {
                 console.log('No stale files found.');
             } else {

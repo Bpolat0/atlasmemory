@@ -3,6 +3,12 @@ import { SCHEMA } from './schema.js';
 import type { CodeSymbol, FileCard, Import, SymbolCard, Anchor, CodeRef, FlowCard, ProjectCard, ContextSnapshot, DbSignature } from '@atlasmemory/core';
 import crypto from 'crypto';
 
+/** Safely parse JSON strings from DB — returns fallback on null/undefined/corrupt data */
+const safeJsonParse = (json: string | null | undefined, fallback: any = null) => {
+    if (!json) return fallback;
+    try { return JSON.parse(json); } catch { return fallback; }
+};
+
 export class Store {
     public db: Database.Database;
 
@@ -240,11 +246,6 @@ export class Store {
 
         const file = this.db.prepare('SELECT path FROM files WHERE id = ?').get(fileId) as any;
 
-        const safeJsonParse = (json: string | null | undefined, fallback: any = null) => {
-            if (!json) return fallback;
-            try { return JSON.parse(json); } catch { return fallback; }
-        };
-
         const level1 = safeJsonParse(row.card_level1);
         if (level1 && row.evidence_anchors_json) {
             level1.evidenceAnchorIds = safeJsonParse(row.evidence_anchors_json, []);
@@ -281,8 +282,8 @@ export class Store {
 
         return {
             folderPath,
-            level0: (() => { try { return JSON.parse(row.card_level0); } catch { return { purpose: '' }; } })(),
-            level1: row.card_level1 ? (() => { try { return JSON.parse(row.card_level1); } catch { return undefined; } })() : undefined,
+            level0: safeJsonParse(row.card_level0, { purpose: '' }),
+            level1: row.card_level1 ? safeJsonParse(row.card_level1) : undefined,
             updatedAt: row.updated_at
         };
     }
@@ -339,15 +340,14 @@ export class Store {
         const row = this.db.prepare('SELECT * FROM symbol_cards WHERE symbol_id = ?').get(symbolId) as any;
         if (!row) return undefined;
 
-        let level1: any;
-        try { level1 = row.card_level1 ? JSON.parse(row.card_level1) : undefined; } catch { level1 = undefined; }
+        const level1 = row.card_level1 ? safeJsonParse(row.card_level1) : undefined;
         if (level1 && row.evidence_anchors_json) {
-            try { level1.evidenceAnchorIds = JSON.parse(row.evidence_anchors_json); } catch { level1.evidenceAnchorIds = []; }
+            level1.evidenceAnchorIds = safeJsonParse(row.evidence_anchors_json, []);
         }
 
         return {
             symbolId,
-            level0: (() => { try { return JSON.parse(row.card_level0); } catch { return { purpose: '' }; } })(),
+            level0: safeJsonParse(row.card_level0, { purpose: '' }),
             level1
         };
     }
@@ -479,8 +479,8 @@ export class Store {
             flowKind: row.flow_kind,
             hopCount: row.hop_count,
             summary: row.summary,
-            trace: JSON.parse(row.trace_json || '[]'),
-            evidenceAnchorIds: JSON.parse(row.evidence_anchors_json || '[]'),
+            trace: safeJsonParse(row.trace_json, []),
+            evidenceAnchorIds: safeJsonParse(row.evidence_anchors_json, []),
             updatedAt: row.updated_at
         }));
     }
@@ -497,8 +497,8 @@ export class Store {
             flowKind: row.flow_kind,
             hopCount: row.hop_count,
             summary: row.summary,
-            trace: JSON.parse(row.trace_json || '[]'),
-            evidenceAnchorIds: JSON.parse(row.evidence_anchors_json || '[]'),
+            trace: safeJsonParse(row.trace_json, []),
+            evidenceAnchorIds: safeJsonParse(row.evidence_anchors_json, []),
             updatedAt: row.updated_at
         }));
     }
@@ -528,12 +528,12 @@ export class Store {
         return {
             id: row.id,
             purpose: row.purpose,
-            architectureBullets: JSON.parse(row.architecture_bullets_json || '[]'),
-            invariants: JSON.parse(row.invariants_json || '[]'),
-            entrypoints: JSON.parse(row.entrypoints_json || '[]'),
-            keyFlowIds: JSON.parse(row.key_flows_json || '[]'),
-            toolsProtocol: JSON.parse(row.tools_protocol_json || '[]'),
-            glossary: JSON.parse(row.glossary_json || '{}'),
+            architectureBullets: safeJsonParse(row.architecture_bullets_json, []),
+            invariants: safeJsonParse(row.invariants_json, []),
+            entrypoints: safeJsonParse(row.entrypoints_json, []),
+            keyFlowIds: safeJsonParse(row.key_flows_json, []),
+            toolsProtocol: safeJsonParse(row.tools_protocol_json, []),
+            glossary: safeJsonParse(row.glossary_json, {}),
             cardHash: row.card_hash,
             updatedAt: row.updated_at
         };
@@ -590,12 +590,12 @@ export class Store {
             createdAt: row.created_at,
             repoId: row.repo_id,
             gitHead: row.git_head || undefined,
-            dbSig: JSON.parse(row.db_sig_json || '{}'),
+            dbSig: safeJsonParse(row.db_sig_json, {}),
             bootpackHash: row.bootpack_hash || undefined,
             deltapackHash: row.deltapack_hash || undefined,
             taskpackHash: row.taskpack_hash || undefined,
             objective: row.objective || undefined,
-            budgets: row.budgets_json ? JSON.parse(row.budgets_json) : undefined,
+            budgets: row.budgets_json ? safeJsonParse(row.budgets_json) : undefined,
             proofMode: row.proof_mode || undefined,
             minDbCoverage: row.min_db_coverage ?? undefined,
             contractHash: row.contract_hash
@@ -611,12 +611,12 @@ export class Store {
             createdAt: row.created_at,
             repoId: row.repo_id,
             gitHead: row.git_head || undefined,
-            dbSig: JSON.parse(row.db_sig_json || '{}'),
+            dbSig: safeJsonParse(row.db_sig_json, {}),
             bootpackHash: row.bootpack_hash || undefined,
             deltapackHash: row.deltapack_hash || undefined,
             taskpackHash: row.taskpack_hash || undefined,
             objective: row.objective || undefined,
-            budgets: row.budgets_json ? JSON.parse(row.budgets_json) : undefined,
+            budgets: row.budgets_json ? safeJsonParse(row.budgets_json) : undefined,
             proofMode: row.proof_mode || undefined,
             minDbCoverage: row.min_db_coverage ?? undefined,
             contractHash: row.contract_hash
@@ -796,7 +796,7 @@ export class Store {
             id: row.id,
             sessionId: row.session_id,
             eventType: row.event_type,
-            eventData: JSON.parse(row.event_data),
+            eventData: safeJsonParse(row.event_data, {}),
             createdAt: row.created_at,
         }));
     }
@@ -806,7 +806,7 @@ export class Store {
             id: row.id,
             sessionId: row.session_id,
             eventType: row.event_type,
-            eventData: JSON.parse(row.event_data),
+            eventData: safeJsonParse(row.event_data, {}),
             createdAt: row.created_at,
         }));
     }
@@ -850,7 +850,7 @@ export class Store {
             id: row.id,
             patternType: row.pattern_type,
             patternKey: row.pattern_key,
-            patternData: JSON.parse(row.pattern_data),
+            patternData: safeJsonParse(row.pattern_data, {}),
             frequency: row.frequency,
             confidence: row.confidence,
             lastSeen: row.last_seen,
@@ -862,7 +862,7 @@ export class Store {
             id: row.id,
             patternType: row.pattern_type,
             patternKey: row.pattern_key,
-            patternData: JSON.parse(row.pattern_data),
+            patternData: safeJsonParse(row.pattern_data, {}),
             frequency: row.frequency,
             confidence: row.confidence,
             lastSeen: row.last_seen,
@@ -1102,7 +1102,7 @@ export class Store {
             breakFrequency: row.break_frequency,
             lastModified: row.last_modified,
             contributorCount: row.contributor_count,
-            coupledFiles: JSON.parse(row.coupled_files_json || '[]'),
+            coupledFiles: safeJsonParse(row.coupled_files_json, []),
             riskLevel: row.risk_level as any,
         };
     }
@@ -1114,7 +1114,7 @@ export class Store {
             breakFrequency: row.break_frequency,
             lastModified: row.last_modified,
             contributorCount: row.contributor_count,
-            coupledFiles: JSON.parse(row.coupled_files_json || '[]'),
+            coupledFiles: safeJsonParse(row.coupled_files_json, []),
             riskLevel: row.risk_level as any,
         }));
     }

@@ -23,7 +23,8 @@ function loadIgnorePatterns(rootDir: string): Set<string> {
     const ignorePath = path.join(rootDir, '.atlasignore');
     const patterns = new Set<string>();
     if (fs.existsSync(ignorePath)) {
-        const content = fs.readFileSync(ignorePath, 'utf-8');
+        let content: string;
+        try { content = fs.readFileSync(ignorePath, 'utf-8'); } catch { return patterns; }
         for (const line of content.split('\n')) {
             const trimmed = line.trim();
             if (trimmed && !trimmed.startsWith('#')) {
@@ -134,7 +135,10 @@ export async function autoIndex(
                 const relPath = path.relative(rootDir, fullPath);
                 if (shouldIgnore(relPath, ignorePatterns)) continue;
 
-                const content = fs.readFileSync(fullPath, 'utf-8');
+                let content: string;
+                try {
+                    content = fs.readFileSync(fullPath, 'utf-8');
+                } catch { skipped++; continue; }
                 const contentHash = crypto.createHash('sha256').update(content).digest('hex');
 
                 // Skip unchanged files in incremental mode

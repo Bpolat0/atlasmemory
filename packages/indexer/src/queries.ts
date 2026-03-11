@@ -3,7 +3,7 @@ export const TS_QUERIES = `
     name: (identifier) @name
     parameters: (formal_parameters) @params
     body: (statement_block) @body) @function
-  
+
   (class_declaration
     name: (type_identifier) @name
     body: (class_body) @body) @class
@@ -12,6 +12,16 @@ export const TS_QUERIES = `
     name: (property_identifier) @name
     parameters: (formal_parameters) @params
     body: (statement_block) @body) @method
+
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @name
+      value: (arrow_function) @body)) @const
+
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @name
+      value: (function_expression) @body)) @const
 
   (import_statement source: (string) @import_source) @import
   (export_statement source: (string) @import_source) @import

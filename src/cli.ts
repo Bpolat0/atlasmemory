@@ -12,6 +12,12 @@ import path from 'path';
 import crypto from 'crypto';
 import { execSync } from 'child_process';
 
+/** Parse integer from CLI option, returning fallback if NaN */
+const safeParseInt = (value: string, fallback: number): number => {
+    const n = parseInt(value, 10);
+    return isNaN(n) ? fallback : n;
+};
+
 let store: Store;
 
 function getStore(dbPath?: string): Store {
@@ -176,7 +182,7 @@ export function registerCliCommands(program: Command): void {
             }
             const store = getStore();
             const service = new SearchService(store);
-            const results = service.search(query, parseInt(options.limit));
+            const results = service.search(query, safeParseInt(options.limit, 10));
 
             if (results.length === 0) {
                 const fileCount = store.getFiles().length;
@@ -204,9 +210,9 @@ export function registerCliCommands(program: Command): void {
             const service = new SearchService(store);
             const builder = new TaskPackBuilder(store);
 
-            const scoredResults = service.search(objective, parseInt(options.limit));
+            const scoredResults = service.search(objective, safeParseInt(options.limit, 20));
             const fileIds = scoredResults.map(r => r.file.id);
-            const pack = builder.build(objective, fileIds, parseInt(options.budget), {
+            const pack = builder.build(objective, fileIds, safeParseInt(options.budget, 12000), {
                 proof: options.proof,
             });
             // Strip evidence UUIDs from CLI output (human-readable mode)
@@ -224,7 +230,7 @@ export function registerCliCommands(program: Command): void {
             const store = getStore();
             const builder = new BootPackBuilder(store);
             const result = builder.buildBootPack({
-                budget: parseInt(options.budget),
+                budget: safeParseInt(options.budget, 1500),
                 format: options.format,
                 compress: 'on',
                 proof: options.proof,
@@ -243,7 +249,7 @@ export function registerCliCommands(program: Command): void {
             const builder = new BootPackBuilder(store);
             const result = builder.buildDeltaPack({
                 since: options.since,
-                budget: parseInt(options.budget),
+                budget: safeParseInt(options.budget, 800),
                 format: options.format,
                 proof: options.proof,
             });
@@ -256,7 +262,7 @@ export function registerCliCommands(program: Command): void {
         .action((options) => {
             const store = getStore();
             const builder = new BootPackBuilder(store);
-            const result = builder.buildHandshake(parseInt(options.budget));
+            const result = builder.buildHandshake(safeParseInt(options.budget, 400));
             console.log(result.text);
         });
 
@@ -273,11 +279,11 @@ export function registerCliCommands(program: Command): void {
             if (options.auto) {
                 if (!apiKey) { console.error('Error: --api-key required for auto refresh'); process.exit(1); }
                 const refresher = new AutoRefresher(store, new LLMService({ apiKey }));
-                const stats = await refresher.refreshAll(parseInt(options.limit));
+                const stats = await refresher.refreshAll(safeParseInt(options.limit, 10));
                 console.log(`Refreshed ${stats.generated} cards. Failed: ${stats.failed}`);
             } else {
                 const refresher = new AutoRefresher(store, new LLMService({ apiKey: 'dummy' }));
-                const stale = await refresher.findStaleFiles(parseInt(options.limit));
+                const stale = await refresher.findStaleFiles(safeParseInt(options.limit, 10));
                 if (stale.length === 0) console.log('No stale files.');
                 else {
                     console.log(`${stale.length} stale files:`);
@@ -360,11 +366,15 @@ export function registerCliCommands(program: Command): void {
 
             for (const file of result.files) {
                 const outputPath = (result.files.length === 1 && options.output) ? options.output : file.path;
-                const dir = path.dirname(outputPath);
-                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-                const existed = fs.existsSync(outputPath);
-                fs.writeFileSync(outputPath, file.content, 'utf-8');
-                console.log(`  [OK] ${existed ? 'Updated' : 'Created'}: ${outputPath}`);
+                try {
+                    const dir = path.dirname(outputPath);
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                    const existed = fs.existsSync(outputPath);
+                    fs.writeFileSync(outputPath, file.content, 'utf-8');
+                    console.log(`  [OK] ${existed ? 'Updated' : 'Created'}: ${outputPath}`);
+                } catch (err: any) {
+                    console.error(`  [FAIL] Could not write ${outputPath}: ${err?.message || err}`);
+                }
             }
 
             console.log(`  [OK] ${store.getFiles().length} files analyzed`);

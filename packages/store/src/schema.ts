@@ -54,6 +54,12 @@ export const SCHEMA = `
     FOREIGN KEY(file_id) REFERENCES files(id)
   );
 
+  CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_id);
+  CREATE INDEX IF NOT EXISTS idx_refs_from ON refs(from_symbol_id);
+  CREATE INDEX IF NOT EXISTS idx_refs_to_name ON refs(to_name);
+  CREATE INDEX IF NOT EXISTS idx_anchors_file ON anchors(file_id);
+  CREATE INDEX IF NOT EXISTS idx_imports_file ON imports(file_id);
+
   CREATE TABLE IF NOT EXISTS file_cards (
     file_id TEXT PRIMARY KEY,
     card_level0 TEXT,
