@@ -64,7 +64,9 @@ export class FileWatcher implements vscode.Disposable {
             this.outputChannel.appendLine(`[AtlasMemory] Index updated.`);
             this.onDidIndex();
         } catch (err: any) {
-            this.outputChannel.appendLine(`[AtlasMemory] Index error: ${err.message}`);
+            const msg = err?.message || String(err);
+            this.outputChannel.appendLine(`[AtlasMemory] Index error: ${msg}`);
+            vscode.window.showWarningMessage(`AtlasMemory: Auto-index failed — ${msg}`);
         } finally {
             this.indexing = false;
 

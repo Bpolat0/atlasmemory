@@ -84,7 +84,19 @@ export class AtlasClient {
             return localBin;
         }
 
-        // Fall back to global
+        // Fall back to global — warn user if first attempt
+        if (!this.binaryPath) {
+            vscode.window.showWarningMessage(
+                'AtlasMemory binary not found locally. Install with: npm install -g atlasmemory',
+                'Install Now'
+            ).then(choice => {
+                if (choice === 'Install Now') {
+                    const terminal = vscode.window.createTerminal('AtlasMemory Install');
+                    terminal.sendText('npm install -g atlasmemory');
+                    terminal.show();
+                }
+            });
+        }
         this.binaryPath = 'atlasmemory';
         return 'atlasmemory';
     }

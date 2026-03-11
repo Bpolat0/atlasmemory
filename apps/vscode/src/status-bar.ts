@@ -29,7 +29,12 @@ export class StatusBarProvider implements vscode.Disposable {
     }
 
     async refresh(): Promise<void> {
-        const status = await this.client.getStatus();
+        let status: AtlasStatus | null;
+        try {
+            status = await this.client.getStatus();
+        } catch {
+            status = null;
+        }
         this.lastStatus = status;
 
         if (!status) {

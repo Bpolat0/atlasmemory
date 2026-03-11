@@ -65,6 +65,20 @@ const STAGE_COST: Record<ProofStage, number> = {
     folder: 3
 };
 
+// Common words that carry no information for proof matching.
+// Aligned with retrieval/search.ts stopwords.
+const PROOF_STOPWORDS = new Set([
+    'the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'what', 'how',
+    'why', 'when', 'where', 'are', 'was', 'were', 'has', 'have', 'had', 'not',
+    'but', 'all', 'can', 'will', 'its', 'than', 'use', 'uses', 'used', 'using',
+    'new', 'via', 'also', 'each', 'any', 'some', 'does', 'like',
+]);
+
+// Minimum overlap score for folder-stage candidates.
+// same_file/one_hop have structural code relationships so they don't need this.
+// Folder-stage scans broadly — require at least some term match to count as evidence.
+const MIN_FOLDER_OVERLAP = 0.001;
+
 export class ClaimProver {
     constructor(private store: Store) {}
 
@@ -286,7 +300,9 @@ export class ClaimProver {
                     ? this.inSameFolder(fileIdHint, file.id)
                     : false;
                 const base = inSameFolder ? 0.7 : 0.45;
-                const score = base + this.overlapScore(claimTerms, this.tokenize(snippet));
+                const overlap = this.overlapScore(claimTerms, this.tokenize(snippet));
+                if (overlap < MIN_FOLDER_OVERLAP) continue; // No term match → not evidence
+                const score = base + overlap;
                 pushCandidate({ evidenceId: best.id, score, snippet, stage: 'folder' });
             }
         }
@@ -319,7 +335,7 @@ export class ClaimProver {
         return (text || '')
             .toLowerCase()
             .split(/[^a-z0-9_]+/)
-            .filter(token => token.length >= 3)
+            .filter(token => token.length >= 3 && !PROOF_STOPWORDS.has(token))
             .slice(0, 64);
     }
 

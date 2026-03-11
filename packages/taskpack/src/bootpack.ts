@@ -1,4 +1,5 @@
 import { Store } from '@atlasmemory/store';
+import type { Claim } from '@atlasmemory/core';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -170,14 +171,21 @@ export class BootPackBuilder {
         push('# AtlasMemory DeltaPack v1\n');
         push(`## Since\nC:${options.since} resolved to ${since.toISOString()} | E:session_state:last_deltapack_at\n`);
 
-        const changedClaims = prover.applyPolicy(
-            changedFiles
-                .sort((a, b) => a.localeCompare(b))
-                .slice(0, 30)
-                .map(file => ({ text: file, scopePath: path.dirname(file) })),
-            proof,
-            2
-        );
+        // Changed file paths are structural facts (the file IS changed),
+        // not semantic claims. Pre-link to their own anchors as evidence.
+        const changedClaims = changedFiles
+            .sort((a, b) => a.localeCompare(b))
+            .slice(0, 30)
+            .map(file => {
+                const fileId = this.store.getFileId(file);
+                const anchors = fileId ? this.store.getAnchorsForFile(fileId).slice(0, 2) : [];
+                const evidenceIds = anchors.map(a => a.id);
+                return {
+                    text: file,
+                    evidenceIds,
+                    status: (evidenceIds.length > 0 ? 'PROVEN' : 'UNPROVEN') as 'PROVEN' | 'UNPROVEN',
+                } satisfies Claim;
+            });
         const changedLines = changedClaims.map(claim => `- ${renderClaim(claim)}`).join('\n');
         push(`## Changed Files\n${changedLines || '- none'}\n`);
 
@@ -202,13 +210,9 @@ export class BootPackBuilder {
         const staleLines = staleWarnings.slice(0, 20).map(w => `- ${w}`).join('\n');
         push(`## Stale Warnings\n${staleLines || '- none'}\n`);
 
-        const coverageClaim = prover.applyPolicy([
-            {
-                text: `indexed=${coverage.indexed}, discoverable=${coverage.discoverable}, ratio=${coverage.ratio.toFixed(3)}`,
-                scopePath: process.cwd()
-            }
-        ], proof, 2);
-        push(`## Coverage Summary\n${coverageClaim.map(claim => renderClaim(claim)).join('\n') || 'C:No coverage claim'}\n`);
+        // Coverage is a computed metric, not a semantic claim that needs proof.
+        const coverageText = `indexed=${coverage.indexed}, discoverable=${coverage.discoverable}, ratio=${coverage.ratio.toFixed(3)}`;
+        push(`## Coverage Summary\nC:${coverageText} | E:coverage_computed\n`);
 
         const missingDirLines = coverage.topMissingDirs.map(item => `- ${item.dir}: ${item.count}`).join('\n');
         push(`## Top Missing Directories\n${missingDirLines || '- none'}\n`);

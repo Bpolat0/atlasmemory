@@ -110,7 +110,10 @@ export class SidebarProvider implements vscode.TreeDataProvider<TreeItemData>, v
 }
 
 function formatTimeAgo(isoDate: string): string {
-    const diff = Date.now() - new Date(isoDate).getTime();
+    const time = new Date(isoDate).getTime();
+    if (isNaN(time)) return 'Unknown';
+    const diff = Date.now() - time;
+    if (diff < 0) return 'Just now';
     const minutes = Math.floor(diff / 60000);
     if (minutes < 1) return 'Just now';
     if (minutes < 60) return `${minutes}m ago`;

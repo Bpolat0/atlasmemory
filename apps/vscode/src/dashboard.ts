@@ -225,7 +225,7 @@ function generateDashboardHtml(status: AtlasStatus | null): string {
 <body>
     <div class="header">
         <h1>AtlasMemory Dashboard</h1>
-        <span class="version">v${s.version}</span>
+        <span class="version">v${esc(s.version)}</span>
     </div>
 
     <div class="grid">
@@ -269,10 +269,10 @@ function generateDashboardHtml(status: AtlasStatus | null): string {
         <div class="card wide">
             <h2>Health</h2>
             <div class="health-badge">${s.health.status === 'HEALTHY' ? 'HEALTHY' : 'ISSUES FOUND'}</div>
-            <div class="health-detail">Database: ${s.database}</div>
+            <div class="health-detail">Database: ${esc(s.database)}</div>
             <div class="health-detail">Last Index: ${s.lastIndex ? new Date(s.lastIndex).toLocaleString() : 'Never'}</div>
             <div class="health-detail">FTS Stemmer: ${s.health.hasFtsStemmer ? 'Porter (Active)' : 'Missing — re-index recommended'}</div>
-            ${s.health.issues.map(i => `<div class="issue">&#9888; ${i}</div>`).join('')}
+            ${(s.health.issues || []).map(i => `<div class="issue">&#9888; ${esc(i)}</div>`).join('')}
         </div>
     </div>
 
@@ -284,16 +284,22 @@ function generateDashboardHtml(status: AtlasStatus | null): string {
 }
 
 function renderMetric(name: string, value: number, color: string): string {
+    const safe = isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
     return `<div class="metric">
-        <span class="metric-name">${name}</span>
-        <div class="metric-bar"><div class="metric-bar-fill" style="width:${value}%;background:${color}"></div></div>
-        <span class="metric-value">${value}%</span>
+        <span class="metric-name">${esc(name)}</span>
+        <div class="metric-bar"><div class="metric-bar-fill" style="width:${safe}%;background:${color}"></div></div>
+        <span class="metric-value">${safe}%</span>
     </div>`;
 }
 
 function renderStat(value: number, label: string): string {
+    const safe = isFinite(value) ? value : 0;
     return `<div class="stat">
-        <div class="stat-number">${value.toLocaleString()}</div>
-        <div class="stat-label">${label}</div>
+        <div class="stat-number">${safe.toLocaleString()}</div>
+        <div class="stat-label">${esc(label)}</div>
     </div>`;
+}
+
+function esc(text: string): string {
+    return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
