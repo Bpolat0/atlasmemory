@@ -21,10 +21,13 @@ export const TS_QUERIES = `
 
   (call_expression
     function: (identifier) @call_name) @call
-  
+
   (call_expression
     function: (member_expression
         property: (property_identifier) @call_name)) @call
+
+  (new_expression
+    constructor: (identifier) @call_name) @call
 `;
 
 export const PYTHON_QUERIES = `
@@ -137,6 +140,9 @@ export const JAVA_QUERIES = `
 
   (method_invocation
     name: (identifier) @call_name) @call
+
+  (object_creation_expression
+    type: (type_identifier) @call_name) @call
 `;
 
 export const CSHARP_QUERIES = `
@@ -170,6 +176,9 @@ export const CSHARP_QUERIES = `
   (invocation_expression
     function: (member_access_expression
       name: (identifier) @call_name)) @call
+
+  (object_creation_expression
+    type: (identifier) @call_name) @call
 `;
 
 export const RUBY_QUERIES = `
