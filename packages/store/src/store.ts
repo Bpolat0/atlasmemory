@@ -238,6 +238,25 @@ export class Store {
             card.qualityScore || 0,
             card.qualityFlags ? JSON.stringify(card.qualityFlags) : null
         );
+
+        // Enrich FTS with card purpose — enables semantic search
+        // e.g., "database schema" finds schema.ts even if code doesn't contain "database"
+        const purpose = card.level1?.purpose || card.level0?.purpose || '';
+        const publicApi = card.level1?.publicApi?.join(' ') || card.level0?.exports?.join(' ') || '';
+        if (purpose || publicApi) {
+            const enrichment = [purpose, publicApi].filter(Boolean).join(' ');
+            try {
+                // Append card semantics to existing FTS content
+                const existing = this.db.prepare('SELECT content FROM fts_files WHERE file_id = ?').get(card.fileId) as { content: string } | undefined;
+                if (existing) {
+                    this.db.prepare('DELETE FROM fts_files WHERE file_id = ?').run(card.fileId);
+                    const file = this.db.prepare('SELECT path FROM files WHERE id = ?').get(card.fileId) as any;
+                    this.db.prepare('INSERT INTO fts_files (path, content, file_id) VALUES (?, ?, ?)').run(
+                        file?.path || '', existing.content + '\n' + enrichment, card.fileId
+                    );
+                }
+            } catch { /* FTS update failure is non-critical */ }
+        }
     }
 
     getFileCard(fileId: string): FileCard | undefined {
@@ -1022,8 +1041,17 @@ export class Store {
             if (fileName.includes(queryLower)) score += 20;
 
             // Per-term filename boost
+            let fileNameTermHits = 0;
             for (const term of terms) {
-                if (fileName.includes(term)) score += 8;
+                if (fileName.includes(term)) { score += 8; fileNameTermHits++; }
+            }
+            // Multi-term bonus: reward files matching ALL query terms
+            if (terms.length > 1 && fileNameTermHits === terms.length) score += 30;
+
+            // Path segment match (e.g., "schema" in path "store/src/schema.ts")
+            const pathSegments = pathLower.split(/[/\\]/);
+            for (const term of terms) {
+                if (pathSegments.some(seg => seg.startsWith(term) || seg.includes(term))) score += 6;
             }
 
             // Recency boost (simple decay)

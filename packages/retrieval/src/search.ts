@@ -79,20 +79,26 @@ export class SearchService {
             finalResults.set(res.file.id, { ...res, confidence });
         }
 
-        // Add neighbors
-        const newIds = Array.from(graphScores.keys()).filter(id => !finalResults.has(id));
-        for (const id of newIds) {
-            const files = this.store.db.prepare('SELECT * FROM files WHERE id = ?').all(id) as any[];
-            if (files.length > 0) {
-                finalResults.set(id, { file: files[0], score: 0, confidence: 'Low' });
-            }
-        }
-
-        // Apply Boost
+        // Graph boost: only boost existing results, don't add new neighbors
+        // Neighbors with 0 base score would pollute results with noise
         for (const [id, boost] of graphScores) {
             if (finalResults.has(id)) {
                 const item = finalResults.get(id)!;
-                item.score += (boost * 15);
+                item.score += (boost * 5); // Tiebreaker, not primary signal
+            }
+        }
+
+        // Only add top graph neighbors if we have room (below limit)
+        if (finalResults.size < limit) {
+            const newIds = Array.from(graphScores.entries())
+                .filter(([id]) => !finalResults.has(id))
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, limit - finalResults.size);
+            for (const [id, boost] of newIds) {
+                const files = this.store.db.prepare('SELECT * FROM files WHERE id = ?').all(id) as any[];
+                if (files.length > 0) {
+                    finalResults.set(id, { file: files[0], score: boost * 3, confidence: 'Low' });
+                }
             }
         }
 

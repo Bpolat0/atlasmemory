@@ -23,6 +23,21 @@ export const TS_QUERIES = `
       name: (identifier) @name
       value: (function_expression) @body)) @const
 
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @name
+      value: (template_string) @body)) @const
+
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @name
+      value: (object) @body)) @const
+
+  (lexical_declaration
+    (variable_declarator
+      name: (identifier) @name
+      value: (array) @body)) @const
+
   (import_statement source: (string) @import_source) @import
   (export_statement source: (string) @import_source) @import
 
