@@ -100,12 +100,14 @@ Files → [Indexer/Tree-sitter] → Symbols + Anchors + Imports + Refs
 - `session_state`, `context_snapshots` — session tracking
 - `reverse_refs` — inverse ref index for impact analysis
 - `conversation_events`, `session_patterns`, `token_usage` — intelligence layer
-- `fts_files`, `fts_symbols`, `fts_semantic_tags` — FTS5 virtual tables
+- `fts_files`, `fts_symbols`, `fts_semantic_tags`, `fts_agent_changes` — FTS5 virtual tables
 - `code_health` — git history health metrics (churn, breaks, coupling)
+- `agent_changes`, `agent_change_files` — AI agent decision memory (Phase 21)
 
 ## MCP Tools
 Primary: `search_repo`, `build_context`, `prove`, `index_repo`, `index_file`, `generate_claude_md`, `ai_readiness`, `handshake`, `get_context_contract`, `acknowledge_context`
 Intelligence: `analyze_impact`, `smart_diff`, `remember`, `session_context`, `enrich_files`
+Agent Memory: `log_decision`, `get_file_history`
 Legacy (deprecated): `build_task_pack`, `bootpack`, `deltapack`, `session_bootstrap`, `prove_claim`, `prove_claims`
 Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `refresh_cards_for_changed_files`, `auto_refresh`
 
@@ -116,4 +118,4 @@ Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `re
 - Reports written to `apps/eval/reports/<timestamp>/`
 
 ## Current Status
-Phases 1-20 complete. Phase 20: Collaborative Intelligence — semantic tags (FTS5), MCP Sampling engine, Level3 intent cards, Code DNA (git health), proactive intelligence in every tool response. 1 new MCP tool (`enrich_files`), 2 new DB tables (`fts_semantic_tags`, `code_health`), 3 new intelligence modules, AI Readiness Score updated with conditional Semantic Coverage metric. See `project_handoff.md` for full history.
+Phases 1-21 complete. Phase 21: Agent Change Memory — AI agents record decisions (why they changed files) that survive session boundaries. Future agents see decisions inline in file cards and via FTS search. 2 new MCP tools (`log_decision`, `get_file_history`), 3 new DB tables (`agent_changes`, `agent_change_files`, `fts_agent_changes`), handshake rule #6, delta mode "Recent AI Decisions" section. See `project_handoff.md` for full history.
