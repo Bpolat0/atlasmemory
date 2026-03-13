@@ -37,6 +37,16 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
     const flowGenerator = new FlowGenerator(store);
     const deterministicCardGenerator = new CardGenerator();
 
+    // Dynamic budget: scales with project size instead of fixed defaults
+    // Formula: file_count * multiplier, clamped to [min, max]
+    function autoBudget(mode: 'task' | 'project' | 'delta'): number {
+        const fileCount = store.getFiles().length || 64; // fallback for empty/unindexed
+        if (mode === 'task')    return Math.min(Math.max(fileCount * 150, 4000), 20000);
+        if (mode === 'project') return Math.min(Math.max(fileCount * 30,  1500), 6000);
+        if (mode === 'delta')   return Math.min(Math.max(fileCount * 15,   800), 3000);
+        return 4000;
+    }
+
     // Phase 19: Intelligence Layer
     const graphService = new GraphService(store);
     const impactAnalyzer = new ImpactAnalyzer(store);
@@ -666,7 +676,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     case 'task': {
                         if (!args.objective || !String(args.objective).trim()) return { content: [{ type: 'text', text: 'Error: "objective" required for task mode. Example: build_context({mode: "task", objective: "fix auth bug"})' }], isError: true };
                         const bcObjective = String(args.objective).trim();
-                        const bcBudget = Number(args.budget || 8000);
+                        const bcBudget = Number(args.budget || autoBudget('task'));
                         const bcProof = (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string;
                         const bcScoredResults = searchService.search(bcObjective, 20);
                         const bcFileIds = bcScoredResults.map(r => r.file.id);
@@ -702,7 +712,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     }
                     case 'project': {
                         const bpResult = bootPackBuilder.buildBootPack({
-                            budget: Number(args.budget || 1500),
+                            budget: Number(args.budget || autoBudget('project')),
                             format: (args.format === 'json' ? 'json' : 'capsule') as 'capsule' | 'json',
                             compress: 'on',
                             proof: (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string,
@@ -712,7 +722,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     case 'delta': {
                         const dpResult = bootPackBuilder.buildDeltaPack({
                             since: String(args.since || 'last'),
-                            budget: Number(args.budget || 800),
+                            budget: Number(args.budget || autoBudget('delta')),
                             format: (args.format === 'json' ? 'json' : 'capsule') as 'capsule' | 'json',
                             sessionId: args.sessionId ? String(args.sessionId) : undefined,
                             proof: (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'warn') as string,
