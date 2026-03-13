@@ -205,4 +205,27 @@ export const SCHEMA = `
     analyzed_at TEXT,
     FOREIGN KEY (file_id) REFERENCES files(id)
   );
+
+  -- Phase 21: Agent Change Memory
+  CREATE TABLE IF NOT EXISTS agent_changes (
+    id          TEXT PRIMARY KEY,
+    summary     TEXT NOT NULL,
+    why         TEXT NOT NULL,
+    change_type TEXT NOT NULL,
+    agent_id    TEXT,
+    created_at  TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_change_files (
+    change_id TEXT NOT NULL REFERENCES agent_changes(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_acf_path     ON agent_change_files(file_path);
+  CREATE INDEX IF NOT EXISTS idx_acf_change   ON agent_change_files(change_id);
+  CREATE INDEX IF NOT EXISTS idx_changes_created ON agent_changes(created_at);
+
+  CREATE VIRTUAL TABLE IF NOT EXISTS fts_agent_changes USING fts5(
+    summary, why, change_id UNINDEXED,
+    tokenize='porter ascii'
+  );
 `;

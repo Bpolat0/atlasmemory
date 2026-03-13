@@ -31,7 +31,7 @@ export class Store {
     }
 
     // Current schema version — increment when schema changes
-    private static readonly SCHEMA_VERSION = 5;
+    private static readonly SCHEMA_VERSION = 6;
 
     private init() {
         const currentVersion = (this.db.pragma('user_version', { simple: true }) as number) || 0;
@@ -62,6 +62,7 @@ export class Store {
                 try { this.db.prepare("ALTER TABLE file_cards ADD COLUMN card_level3 TEXT").run(); } catch { }
             }
             // v4, v5: new tables handled by SCHEMA (CREATE IF NOT EXISTS)
+            // v6: agent_changes tables handled by SCHEMA (CREATE IF NOT EXISTS)
 
             // Stamp current version
             this.db.pragma(`user_version = ${Store.SCHEMA_VERSION}`);
@@ -735,7 +736,12 @@ export class Store {
     }
 
     getAnchorsForFile(fileId: string): Anchor[] {
-        return this.db.prepare('SELECT * FROM anchors WHERE file_id = ? ORDER BY start_line').all(fileId).map((row: any) => ({
+        // Use GROUP BY to deduplicate anchors with identical line ranges — indexer
+        // sometimes creates multiple anchors for the same location (e.g. one per ref type).
+        // MIN(id) picks a stable representative; snippet_hash is identical for same range.
+        return this.db.prepare(
+            'SELECT MIN(id) as id, file_id, start_line, end_line, snippet_hash FROM anchors WHERE file_id = ? GROUP BY start_line, end_line ORDER BY start_line'
+        ).all(fileId).map((row: any) => ({
             id: row.id,
             fileId: row.file_id,
             startLine: row.start_line,
