@@ -415,9 +415,11 @@ export function computeAiReadiness(store: Store): AiReadinessScore {
     const totalFiles = files.length;
 
     const totalCards = (store.db.prepare('SELECT COUNT(*) as n FROM file_cards').get() as { n: number }).n;
-    const enrichedCards = totalCards - (store.db.prepare(
-        "SELECT COUNT(*) as n FROM file_cards WHERE card_level1 LIKE '%Awaiting AI enrichment%'"
+    // A card is "described" if it has: (a) level1 without the placeholder note, OR (b) level3 (deterministic/semantic enrichment)
+    const awaitingCount = (store.db.prepare(
+        "SELECT COUNT(*) as n FROM file_cards WHERE card_level1 LIKE '%Awaiting AI enrichment%' AND (card_level3 IS NULL OR card_level3 = 'null')"
     ).get() as { n: number }).n;
+    const enrichedCards = totalCards - awaitingCount;
 
     const flowCount = (store.db.prepare('SELECT COUNT(*) as n FROM flow_cards').get() as { n: number }).n;
     const anchorCount = (store.db.prepare('SELECT COUNT(*) as n FROM anchors').get() as { n: number }).n;
