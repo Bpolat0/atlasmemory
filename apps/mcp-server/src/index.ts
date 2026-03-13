@@ -272,6 +272,40 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     },
                     required: ["contractHash"]
                 }
+            },
+            {
+                name: "log_decision",
+                description: "Record an AI agent's decision after making file changes. Creates institutional memory for future agents.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        files: {
+                            type: "array",
+                            items: { type: "string" },
+                            description: "File paths that were changed (relative to repo root)"
+                        },
+                        summary: { type: "string", description: "One sentence: what changed" },
+                        why: { type: "string", description: "One sentence: root cause / motivation" },
+                        type: {
+                            type: "string",
+                            enum: ["fix", "feature", "refactor"],
+                            description: "Type of change"
+                        }
+                    },
+                    required: ["files", "summary", "why", "type"]
+                }
+            },
+            {
+                name: "get_file_history",
+                description: "Get AI change decision history for a specific file, newest first.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        file_path: { type: "string", description: "File path (relative to repo root)" },
+                        limit: { type: "number", description: "Max records to return (default 10)" }
+                    },
+                    required: ["file_path"]
+                }
             }
         ],
     };
@@ -925,6 +959,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
             return {
                 content: [{ type: "text", text: JSON.stringify({ ok: true, sessionId, contractHash }, null, 2) }]
+            };
+        }
+        case "log_decision": {
+            const files = request.params.arguments?.files as string[] | undefined;
+            const summary = String(request.params.arguments?.summary || '');
+            const why = String(request.params.arguments?.why || '');
+            const type = String(request.params.arguments?.type || '') as 'fix' | 'feature' | 'refactor';
+
+            if (!files || files.length === 0) {
+                return { isError: true, content: [{ type: "text", text: "files array is required" }] };
+            }
+            if (!summary || !why) {
+                return { isError: true, content: [{ type: "text", text: "summary and why are required" }] };
+            }
+            if (!['fix', 'feature', 'refactor'].includes(type)) {
+                return { isError: true, content: [{ type: "text", text: "type must be 'fix', 'feature', or 'refactor'" }] };
+            }
+
+            const id = store.logAgentChange({
+                filePaths: files,
+                summary,
+                why,
+                changeType: type,
+            });
+
+            return {
+                content: [{ type: "text", text: JSON.stringify({ ok: true, id }) }]
+            };
+        }
+        case "get_file_history": {
+            const filePath = String(request.params.arguments?.file_path || '');
+            const limit = Number(request.params.arguments?.limit) || 10;
+
+            if (!filePath) {
+                return { isError: true, content: [{ type: "text", text: "file_path is required" }] };
+            }
+
+            const changes = store.getChangesForFile(filePath, limit);
+            const result = changes.map(c => ({
+                id: c.id,
+                summary: c.summary,
+                why: c.why,
+                changeType: c.changeType,
+                createdAt: c.createdAt,
+            }));
+
+            return {
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
             };
         }
         default:
