@@ -223,6 +223,25 @@ export class Store {
 
     // --- Cards ---
     addFileCard(card: FileCard) {
+        // Preserve enrichment data from the existing card if the new card doesn't have it.
+        // autoIndex regenerates cards on every run — without this, level3 and enriched
+        // level1 notes get wiped on each re-index, losing all semantic enrichment work.
+        if (!card.level3) {
+            const existing = this.db.prepare(
+                'SELECT card_level3, card_level1 FROM file_cards WHERE file_id = ?'
+            ).get(card.fileId) as { card_level3: string | null; card_level1: string | null } | undefined;
+
+            if (existing?.card_level3) {
+                card.level3 = safeJsonParse(existing.card_level3, undefined);
+            }
+            if (existing?.card_level1 && card.level1) {
+                const existingL1 = safeJsonParse(existing.card_level1, null);
+                if (existingL1?.notes && existingL1.notes !== 'Awaiting AI enrichment') {
+                    card.level1.notes = existingL1.notes;
+                }
+            }
+        }
+
         const stmt = this.db.prepare(`
             INSERT OR REPLACE INTO file_cards (file_id, card_level0, card_level1, card_level2, card_level3, evidence_anchors_json, card_hash, quality_score, quality_flags_json, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
