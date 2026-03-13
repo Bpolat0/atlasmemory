@@ -1061,6 +1061,14 @@ export class Store {
                 else if (pathSegments.some((seg: string) => seg.includes(term))) score += 4;
             }
 
+            // Eval/test file penalty — these files test other code, not define it.
+            // They naturally match many query terms but are rarely what you want.
+            const isTestFile = pathSegments.some((seg: string) =>
+                seg === 'eval' || seg === 'test' || seg === 'tests' ||
+                seg === '__tests__' || seg === 'spec' || seg.endsWith('.test') || seg.endsWith('.spec')
+            ) || fileName.includes('.test.') || fileName.includes('.spec.');
+            if (isTestFile) score *= 0.4;
+
             // Recency boost (simple decay)
             const updated = new Date(file.updated_at).getTime();
             const now = Date.now();
