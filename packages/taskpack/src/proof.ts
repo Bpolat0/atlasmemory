@@ -361,7 +361,9 @@ export class ClaimProver {
 }
 
 export function renderClaim(claim: Claim, label: 'C' | 'F' = 'C'): string {
-    const evidence = claim.evidenceIds.length > 0 ? claim.evidenceIds.join(',') : 'none';
+    // Cap at 5 IDs — showing all 74 UUIDs wastes hundreds of tokens with no benefit
+    const ids = claim.evidenceIds.slice(0, 5);
+    const evidence = ids.length > 0 ? ids.join(',') : 'none';
     if (claim.status === 'UNPROVEN') {
         return `${label}:${claim.text} | S:UNPROVEN | E:${evidence}`;
     }

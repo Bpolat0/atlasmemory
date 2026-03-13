@@ -753,8 +753,9 @@ export class BootPackBuilder {
 
     countEnrichableCards(): number {
         try {
+            // A card is enriched if it has level3 (deterministic/semantic) OR level1 without the placeholder
             const result = this.store.db.prepare(
-                "SELECT COUNT(*) as n FROM file_cards WHERE card_level1 LIKE '%Awaiting AI enrichment%'"
+                "SELECT COUNT(*) as n FROM file_cards WHERE card_level1 LIKE '%Awaiting AI enrichment%' AND (card_level3 IS NULL OR card_level3 = 'null')"
             ).get() as { n: number };
             return result.n;
         } catch {
