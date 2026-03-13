@@ -202,6 +202,30 @@ export class BootPackBuilder {
         const changedLines = changedClaims.map(claim => `- ${renderClaim(claim)}`).join('\n');
         push(`## Changed Files\n${changedLines || '- none'}\n`);
 
+        // Phase 21: Recent AI Decisions — placed RIGHT AFTER Changed Files
+        // because for an AI agent, "why did this change" is more valuable than coverage stats
+        try {
+            const recentChanges = this.store.getRecentChanges(since, 20);
+            if (recentChanges.length > 0) {
+                const grouped = new Map<string, typeof recentChanges>();
+                for (const change of recentChanges) {
+                    for (const fp of change.filePaths) {
+                        if (!grouped.has(fp)) grouped.set(fp, []);
+                        grouped.get(fp)!.push(change);
+                    }
+                }
+                const decisionLines: string[] = [];
+                for (const [fp, changes] of grouped) {
+                    decisionLines.push(`### ${fp}`);
+                    for (const c of changes) {
+                        decisionLines.push(`- ${c.summary} [${c.changeType}]`);
+                        decisionLines.push(`  Why: ${c.why}`);
+                    }
+                }
+                push(`## Recent AI Decisions\n${decisionLines.join('\n')}\n`);
+            }
+        } catch { /* no agent_changes table yet */ }
+
         const flowClaims = prover.applyPolicy(
             Array.from(affectedFlows)
                 .sort()
@@ -232,29 +256,6 @@ export class BootPackBuilder {
 
         const missingExtLines = coverage.topMissingExts.map(item => `- ${item.ext}: ${item.count}`).join('\n');
         push(`## Top Missing Extensions\n${missingExtLines || '- none'}\n`);
-
-        // Phase 21: Recent AI Decisions section
-        try {
-            const recentChanges = this.store.getRecentChanges(since, 20);
-            if (recentChanges.length > 0) {
-                const grouped = new Map<string, typeof recentChanges>();
-                for (const change of recentChanges) {
-                    for (const fp of change.filePaths) {
-                        if (!grouped.has(fp)) grouped.set(fp, []);
-                        grouped.get(fp)!.push(change);
-                    }
-                }
-                const decisionLines: string[] = [];
-                for (const [fp, changes] of grouped) {
-                    decisionLines.push(`### ${fp}`);
-                    for (const c of changes) {
-                        decisionLines.push(`- ${c.summary} [${c.changeType}]`);
-                        decisionLines.push(`  Why: ${c.why}`);
-                    }
-                }
-                push(`## Recent AI Decisions\n${decisionLines.join('\n')}\n`);
-            }
-        } catch { /* no agent_changes table yet */ }
 
         this.store.setState('last_deltapack_at', new Date().toISOString(), options.sessionId);
 
