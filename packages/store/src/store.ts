@@ -1040,18 +1040,25 @@ export class Store {
             if (fileName === queryLower || fileName === queryLower + '.ts') score += 100;
             if (fileName.includes(queryLower)) score += 20;
 
-            // Per-term filename boost
+            // Per-term filename boost — strong signal: this file IS the thing being searched
+            const fileBasename = fileName.replace(/\.[^.]+$/, ''); // e.g., "schema" from "schema.ts"
             let fileNameTermHits = 0;
             for (const term of terms) {
-                if (fileName.includes(term)) { score += 8; fileNameTermHits++; }
+                if (fileName.includes(term)) {
+                    // Exact basename match: this file defines/is the queried concept
+                    if (fileBasename === term) score += 60;
+                    else score += 25;
+                    fileNameTermHits++;
+                }
             }
-            // Multi-term bonus: reward files matching ALL query terms
-            if (terms.length > 1 && fileNameTermHits === terms.length) score += 30;
+            // Multi-term bonus: reward files matching ALL query terms in filename
+            if (terms.length > 1 && fileNameTermHits === terms.length) score += 60;
 
-            // Path segment match (e.g., "schema" in path "store/src/schema.ts")
+            // Path segment match — file in a directory named after the query term
             const pathSegments = pathLower.split(/[/\\]/);
             for (const term of terms) {
-                if (pathSegments.some(seg => seg.startsWith(term) || seg.includes(term))) score += 6;
+                if (pathSegments.some((seg: string) => seg === term || seg.startsWith(term + '.'))) score += 10;
+                else if (pathSegments.some((seg: string) => seg.includes(term))) score += 4;
             }
 
             // Recency boost (simple decay)

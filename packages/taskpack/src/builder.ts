@@ -71,6 +71,8 @@ export class TaskPackBuilder {
         }
 
         // --- P2: Relevant Files (Cards) ---
+        // Reserve 40% of budget for snippets/flows — file cards capped at 60%
+        const FILE_CARDS_BUDGET_CAP = Math.floor(tokenBudget * 0.60);
         const fileCards: FileCard[] = [];
         const fileSectionParts: string[] = ['## Relevant Files\n'];
 
@@ -82,7 +84,7 @@ export class TaskPackBuilder {
             const cardText = this.formatFileCard(card, prover, proofPolicy);
             const tokens = this.estimateTokens(cardText);
 
-            if (usedTokens + tokens < tokenBudget) {
+            if (usedTokens + tokens < FILE_CARDS_BUDGET_CAP) {
                 usedTokens += tokens;
                 fileSectionParts.push(cardText);
             } else {
@@ -91,7 +93,91 @@ export class TaskPackBuilder {
         }
         sections.push(fileSectionParts.join('\n'));
 
-        // --- P2.5: Flow Overview (v3) ---
+        // --- P2.5: Evidence Snippets (Real Content — highest value, goes early) ---
+        // Moved before Flow/Invariant/Symbol sections so actual code always gets budget.
+        const snippetSectionParts: string[] = ['\n## Evidence Snippets\n'];
+
+        for (const card of fileCards) {
+            try {
+                if (fs.existsSync(card.path)) {
+                    const content = fs.readFileSync(card.path, 'utf-8');
+                    const ext = path.extname(card.path).slice(1);
+
+                    let snippets: string[] = [];
+
+                    const fileHeader = `\n### ${path.basename(card.path)}\n\`\`\`${ext}\n`;
+                    const fileFooter = `\`\`\`\n`;
+                    const headerTokens = this.estimateTokens(fileHeader + fileFooter);
+
+                    // Check if we have any budget for this file at all
+                    if (usedTokens + headerTokens >= tokenBudget) continue;
+
+                    if (card.level1?.evidenceAnchorIds && card.level1.evidenceAnchorIds.length > 0) {
+                        // Use Evidence Anchors — emit each snippet individually for better budget use
+                        let fileHasSnippets = false;
+                        const MAX_ANCHORS_PER_FILE = 3;
+                        let anchorCount = 0;
+
+                        for (const anchorId of card.level1.evidenceAnchorIds) {
+                            if (anchorCount >= MAX_ANCHORS_PER_FILE) break;
+                            const anchor = this.store.getAnchor(anchorId);
+                            if (!anchor) continue;
+
+                            const start = Math.max(1, anchor.startLine - 1);
+                            const end = anchor.endLine + 1;
+                            const actualEnd = Math.min(start + snippetMaxLines, end);
+                            const text = this.getSnippet(content, start, actualEnd);
+
+                            // Skip stale snippets — outdated code misleads AI
+                            const currentHash = this.hashRange(content, anchor.startLine, anchor.endLine);
+                            if (currentHash !== anchor.snippetHash) continue;
+
+                            const snippet = `// Lines ${start}-${actualEnd}\n${text}`;
+                            const snippetTokens = this.estimateTokens(snippet);
+                            if (usedTokens + (fileHasSnippets ? 0 : headerTokens) + snippetTokens >= tokenBudget) break;
+
+                            if (!fileHasSnippets) {
+                                snippetSectionParts.push(fileHeader);
+                                usedTokens += headerTokens;
+                                fileHasSnippets = true;
+                            } else {
+                                snippetSectionParts.push('\n...\n\n');
+                            }
+                            snippetSectionParts.push(snippet + '\n');
+                            usedTokens += snippetTokens;
+                            anchorCount++;
+                        }
+
+                        if (fileHasSnippets) {
+                            snippetSectionParts.push(fileFooter);
+                        } else {
+                            // All anchors stale — fallback to file start
+                            snippets.push(this.getSnippet(content, 1, Math.min(40, snippetMaxLines)));
+                        }
+                    } else {
+                        // No evidence anchors — fallback to file start
+                        snippets.push(this.getSnippet(content, 1, Math.min(40, snippetMaxLines)));
+                    }
+
+                    // Emit fallback block if we gathered any fallback content
+                    if (snippets.length > 0) {
+                        const fallbackBlock = `${fileHeader}${snippets[0]}\n${fileFooter}`;
+                        const tokens = this.estimateTokens(fallbackBlock);
+                        if (usedTokens + tokens < tokenBudget) {
+                            usedTokens += tokens;
+                            snippetSectionParts.push(fallbackBlock);
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore missing files
+            }
+        }
+        // Use join('') since each part already contains correct newlines — join('\n') creates double-newlines
+        // which break the eval regex /```[a-z]+\n\/\/ Lines/ for snippet counting
+        sections.push(snippetSectionParts.join(''));
+
+        // --- P3: Flow Overview (v3) ---
         const flowSectionParts: string[] = ['\n## Flow Overview\n'];
         let flowEntries = 0;
 
@@ -139,7 +225,7 @@ export class TaskPackBuilder {
             sections.push(flowSectionParts.join(''));
         }
 
-        // --- P2.6: Invariants & Contracts (v3) ---
+        // --- P3.5: Invariants & Contracts (v3) ---
         const invariantSectionParts: string[] = ['\n## Invariants & Contracts\n'];
         let invariantEntries = 0;
         for (const card of fileCards) {
@@ -165,7 +251,7 @@ export class TaskPackBuilder {
             sections.push(invariantSectionParts.join(''));
         }
 
-        // --- P3: Relevant Symbols ---
+        // --- P4: Relevant Symbols ---
         const symbolSectionParts: string[] = ['\n## Relevant Symbols\n'];
         const seenSymbols = new Set<string>();
 
@@ -205,7 +291,7 @@ export class TaskPackBuilder {
         }
         sections.push(symbolSectionParts.join('\n'));
 
-        // --- P3.5: Call Chain Summary ---
+        // --- P4.5: Call Chain Summary ---
         const callChainParts: string[] = ['\n## Call Chain Summary\n'];
 
         // We only care about calls originating from the selected files/symbols
@@ -232,60 +318,6 @@ export class TaskPackBuilder {
         if (callChainParts.length > 1) {
             sections.push(callChainParts.join(''));
         }
-
-        // --- P4: Evidence Snippets (Real Content) ---
-        const snippetSectionParts: string[] = ['\n## Evidence Snippets\n'];
-
-        for (const card of fileCards) {
-            try {
-                if (fs.existsSync(card.path)) {
-                    const content = fs.readFileSync(card.path, 'utf-8');
-                    const ext = path.extname(card.path).slice(1);
-
-                    let snippets: string[] = [];
-
-                    if (card.level1?.evidenceAnchorIds && card.level1.evidenceAnchorIds.length > 0) {
-                        // Use Evidence Anchors
-                        for (const anchorId of card.level1.evidenceAnchorIds) {
-                            const anchor = this.store.getAnchor(anchorId);
-                            if (!anchor) continue;
-
-                            const start = Math.max(1, anchor.startLine - 1); // Context
-                            const end = anchor.endLine + 1;
-                            // Clamp size
-                            const actualEnd = Math.min(start + snippetMaxLines, end);
-
-                            const text = this.getSnippet(content, start, actualEnd);
-
-                            // Skip stale snippets — outdated code misleads AI
-                            const currentHash = this.hashRange(content, anchor.startLine, anchor.endLine);
-                            if (currentHash !== anchor.snippetHash) continue;
-
-                            snippets.push(`// Lines ${start}-${actualEnd}\n${text}`);
-                        }
-                    } else {
-                        // Fallback: First N lines but mark as fallback
-                        const fallbackLimit = 60;
-                        const text = this.getSnippet(content, 1, Math.min(fallbackLimit, snippetMaxLines));
-                        snippets.push(`// [Review Required] No Evidence Anchors (Fallback: File start)\n${text}`);
-                    }
-
-                    if (snippets.length > 0) {
-                        const snippetBlock = `\n### ${path.basename(card.path)}\n\`\`\`${ext}\n${snippets.join('\n\n...\n\n')}\n\`\`\`\n`;
-                        const tokens = this.estimateTokens(snippetBlock);
-
-                        // Lower priority for snippets? Or strictly check budget
-                        if (usedTokens + tokens < tokenBudget) {
-                            usedTokens += tokens;
-                            snippetSectionParts.push(snippetBlock);
-                        }
-                    }
-                }
-            } catch (e) {
-                // ignore missing files
-            }
-        }
-        sections.push(snippetSectionParts.join('\n'));
 
         // --- Footer ---
         const footer = `\n## Token Report\nUsed: ~${usedTokens} / ${tokenBudget}\n`;
@@ -355,7 +387,10 @@ export class TaskPackBuilder {
             text += `- Purpose: ${renderClaim(purposeClaim[0])}\n`;
         }
         if (card.level1?.publicApi?.length) {
-            text += `- Public API: ${card.level1.publicApi.join(', ')}\n`;
+            const api = card.level1.publicApi;
+            const shown = api.slice(0, 8);
+            const more = api.length > 8 ? ` +${api.length - 8} more` : '';
+            text += `- Public API: ${shown.join(', ')}${more}\n`;
         }
         if (card.level2?.envDependencies?.length) {
             const envList = card.level2.envDependencies.slice(0, 4).map(dep => `${dep.source}:${dep.name}`);

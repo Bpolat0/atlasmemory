@@ -89,6 +89,7 @@ export class SearchService {
         }
 
         // Only add top graph neighbors if we have room (below limit)
+        // Cap at 3 so they stay clearly below real FTS results — prevent score pollution
         if (finalResults.size < limit) {
             const newIds = Array.from(graphScores.entries())
                 .filter(([id]) => !finalResults.has(id))
@@ -97,7 +98,7 @@ export class SearchService {
             for (const [id, boost] of newIds) {
                 const files = this.store.db.prepare('SELECT * FROM files WHERE id = ?').all(id) as any[];
                 if (files.length > 0) {
-                    finalResults.set(id, { file: files[0], score: boost * 3, confidence: 'Low' });
+                    finalResults.set(id, { file: files[0], score: Math.min(boost * 3, 3), confidence: 'Low' });
                 }
             }
         }
