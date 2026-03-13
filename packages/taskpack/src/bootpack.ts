@@ -64,9 +64,12 @@ export class BootPackBuilder {
         push('## Purpose\n' + `${purposeClaim.map(c => renderClaim(c)).join('\n') || 'C:No proven purpose claim'}` + '\n');
 
         const mapLine = `P: ${Object.entries(pathAliases).map(([k, v]) => `${k}=${v}`).join(' | ')}`;
+        // Regenerate fresh bullets so new packages (store, retrieval) always appear.
+        // Don't rely on cached projectCard.architectureBullets — it was generated once and misses
+        // small-but-critical packages like packages/store and packages/retrieval.
+        const freshBullets = this.generateArchitectureBullets(pathAliases);
         const archClaims = prover.applyPolicy(
-            projectCard.architectureBullets
-                .slice(0, 8)
+            freshBullets
                 .map((claim, index) => {
                     const ev = this.archEvidence(index);
                     return { text: claim, evidenceIds: ev ? [ev] : [] };
@@ -85,8 +88,16 @@ export class BootPackBuilder {
         const invariantLines = invariantClaims.map(claim => renderClaim(claim)).join('\n');
         push(`## Invariants & Contracts (max 10)\n${invariantLines || 'C:No invariants found'}\n`);
 
+        // Dedup flows by call chain text before rendering
+        const seenFlowTexts = new Set<string>();
+        const uniqueFlows = flows.filter(flow => {
+            const text = flow.trace.map(step => step.symbolName).join(' -> ');
+            if (seenFlowTexts.has(text)) return false;
+            seenFlowTexts.add(text);
+            return true;
+        });
         const flowClaims = prover.applyPolicy(
-            flows.slice(0, 10).map(flow => ({
+            uniqueFlows.slice(0, 10).map(flow => ({
                 text: flow.trace.map(step => step.symbolName).join(' -> '),
                 evidenceIds: flow.evidenceAnchorIds || [],
                 fileId: flow.fileId
@@ -97,9 +108,11 @@ export class BootPackBuilder {
         const flowLines = flowClaims.map(claim => renderClaim(claim, 'F')).join('\n');
         push(`## Top Flows (max 10)\n${flowLines || 'F:none'}\n`);
 
+        // Use fresh symbolAliases (not cached projectCard.entrypoints which picked CLI internals).
         const symbolLine = `S: ${Object.entries(symbolAliases).map(([k, v]) => `${k}=${v}`).join(' | ')}`;
+        const freshEntrypoints = Object.values(symbolAliases);
         const entryClaims = prover.applyPolicy(
-            projectCard.entrypoints.slice(0, 8).map((item, idx) => {
+            freshEntrypoints.slice(0, 8).map((item, idx) => {
                 const ev = this.archEvidence(idx + 20);
                 return {
                     text: item,
@@ -220,6 +233,29 @@ export class BootPackBuilder {
         const missingExtLines = coverage.topMissingExts.map(item => `- ${item.ext}: ${item.count}`).join('\n');
         push(`## Top Missing Extensions\n${missingExtLines || '- none'}\n`);
 
+        // Phase 21: Recent AI Decisions section
+        try {
+            const recentChanges = this.store.getRecentChanges(since, 20);
+            if (recentChanges.length > 0) {
+                const grouped = new Map<string, typeof recentChanges>();
+                for (const change of recentChanges) {
+                    for (const fp of change.filePaths) {
+                        if (!grouped.has(fp)) grouped.set(fp, []);
+                        grouped.get(fp)!.push(change);
+                    }
+                }
+                const decisionLines: string[] = [];
+                for (const [fp, changes] of grouped) {
+                    decisionLines.push(`### ${fp}`);
+                    for (const c of changes) {
+                        decisionLines.push(`- ${c.summary} [${c.changeType}]`);
+                        decisionLines.push(`  Why: ${c.why}`);
+                    }
+                }
+                push(`## Recent AI Decisions\n${decisionLines.join('\n')}\n`);
+            }
+        } catch { /* no agent_changes table yet */ }
+
         this.store.setState('last_deltapack_at', new Date().toISOString(), options.sessionId);
 
         const used = this.estimateTokens(sections.join('\n'));
@@ -255,6 +291,7 @@ export class BootPackBuilder {
             '3) If unsure, call get_allowed_evidence before asserting file details',
             '4) Do not hallucinate; cite evidence IDs in every non-trivial claim',
             '5) For updates: build_context(mode="delta", since="last") to see what changed',
+            '6) After making file changes: call log_decision(files, summary, why, type)',
             ...(enrichableCount > 0 ? [
                 '',
                 `## Memory Enrichment Available`,
@@ -533,12 +570,14 @@ export class BootPackBuilder {
 
             if (dirFiles.length === 0) continue;
 
-            // Get top symbols for this directory
+            // Get top symbols for this directory (dedup by name)
             const topSymbols: string[] = [];
+            const seenNames = new Set<string>();
             for (const file of dirFiles.slice(0, 5)) {
                 const symbols = this.store.getSymbolsForFile(file.id);
                 for (const sym of symbols) {
-                    if (sym.visibility === 'public' && topSymbols.length < 3) {
+                    if (sym.visibility === 'public' && !seenNames.has(sym.name) && topSymbols.length < 3) {
+                        seenNames.add(sym.name);
                         topSymbols.push(sym.name);
                     }
                 }
@@ -581,7 +620,14 @@ export class BootPackBuilder {
             for (const invariant of card.level2.invariants) {
                 if (!invariant.evidenceAnchorIds || invariant.evidenceAnchorIds.length === 0) continue;
                 const text = (invariant.text || '').trim();
-                if (text.length < 4) continue;
+                if (text.length < 10) continue;
+                // Only keep real function/class contracts — skip variable declarations.
+                // "Contract: const foo = []" is not a meaningful invariant for an AI agent.
+                // A real contract has parameters: "Contract: function foo(x: T): R {"
+                const signature = text.replace(/^Contract:\s*/, '');
+                const isRealContract = /\(/.test(signature) && // has parameter list
+                    !(/^const\s+\w+\s*=\s*[[\]{]/.test(signature)); // not a bare const array/obj
+                if (!isRealContract) continue;
                 claims.push({ text, evidenceIds: invariant.evidenceAnchorIds, fileId: file.id });
                 if (claims.length >= limit) return claims;
             }
@@ -602,7 +648,7 @@ export class BootPackBuilder {
         }
         const sortedDirs = Array.from(dirCounts.entries())
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 8);
+            .slice(0, 12);
 
         const aliases: Record<string, string> = {};
         sortedDirs.forEach(([dir], index) => {
@@ -612,22 +658,27 @@ export class BootPackBuilder {
     }
 
     private buildSymbolAliases(): Record<string, string> {
-        // Dynamically discover top public symbols from indexed data
+        // Pick the most meaningful public classes as entry points.
+        // Classes before functions; skip CLI/eval/test internals (they're not public API).
         const files = this.store.getFiles();
-        const publicSymbols: string[] = [];
+        const SKIP_DIRS = ['apps/cli', 'apps/eval', 'apps/vscode', '__tests__', 'test', 'spec'];
+        const classes: string[] = [];
+        const fns: string[] = [];
+        const seenNames = new Set<string>();
         for (const file of files) {
+            const rel = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
+            if (SKIP_DIRS.some(d => rel.startsWith(d))) continue;
             const symbols = this.store.getSymbolsForFile(file.id);
             for (const sym of symbols) {
-                if (sym.visibility === 'public' && ['function', 'class'].includes(sym.kind)) {
-                    publicSymbols.push(sym.name);
-                }
+                if (sym.visibility !== 'public' || seenNames.has(sym.name)) continue;
+                if (sym.kind === 'class') { seenNames.add(sym.name); classes.push(sym.name); }
+                else if (sym.kind === 'function') { seenNames.add(sym.name); fns.push(sym.name); }
             }
-            if (publicSymbols.length >= 10) break;
+            if (classes.length + fns.length >= 10) break;
         }
+        const top = [...classes, ...fns].slice(0, 5);
         const aliases: Record<string, string> = {};
-        publicSymbols.slice(0, 5).forEach((name, index) => {
-            aliases[`S${index + 1}`] = name;
-        });
+        top.forEach((name, index) => { aliases[`S${index + 1}`] = name; });
         return aliases;
     }
 
