@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { SCHEMA } from './schema.js';
-import type { CodeSymbol, FileCard, Import, SymbolCard, Anchor, CodeRef, FlowCard, ProjectCard, ContextSnapshot, DbSignature } from '@atlasmemory/core';
+import type { CodeSymbol, FileCard, Import, SymbolCard, Anchor, CodeRef, FlowCard, ProjectCard, ContextSnapshot, DbSignature, AgentChange } from '@atlasmemory/core';
 import crypto from 'crypto';
 
 /** Safely parse JSON strings from DB — returns fallback on null/undefined/corrupt data */
@@ -951,6 +951,93 @@ export class Store {
         };
     }
 
+    // --- Agent Change Memory (Phase 21) ---
+
+    logAgentChange(record: {
+        filePaths: string[];
+        summary: string;
+        why: string;
+        changeType: 'fix' | 'feature' | 'refactor';
+        agentId?: string;
+    }): string {
+        const id = crypto.randomUUID();
+        this.db.prepare(`
+            INSERT INTO agent_changes (id, summary, why, change_type, agent_id)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(id, record.summary, record.why, record.changeType, record.agentId || null);
+
+        const insertFile = this.db.prepare(
+            'INSERT INTO agent_change_files (change_id, file_path) VALUES (?, ?)'
+        );
+        for (const filePath of record.filePaths) {
+            insertFile.run(id, filePath);
+        }
+
+        this.db.prepare(
+            'INSERT INTO fts_agent_changes (summary, why, change_id) VALUES (?, ?, ?)'
+        ).run(record.summary, record.why, id);
+
+        return id;
+    }
+
+    getChangesForFile(filePath: string, limit: number = 20): AgentChange[] {
+        const rows = this.db.prepare(`
+            SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at
+            FROM agent_changes ac
+            JOIN agent_change_files acf ON acf.change_id = ac.id
+            WHERE acf.file_path = ?
+            ORDER BY ac.created_at DESC
+            LIMIT ?
+        `).all(filePath, limit) as any[];
+
+        return rows.map(row => this.hydrateAgentChange(row));
+    }
+
+    getRecentChanges(since: Date, limit: number = 50): AgentChange[] {
+        const rows = this.db.prepare(`
+            SELECT id, summary, why, change_type, agent_id, created_at
+            FROM agent_changes
+            WHERE created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        `).all(since.toISOString(), limit) as any[];
+
+        return rows.map(row => this.hydrateAgentChange(row));
+    }
+
+    searchAgentChanges(query: string, limit: number = 10): AgentChange[] {
+        try {
+            const safeQuery = `"${query.replace(/"/g, '""')}"`;
+            const rows = this.db.prepare(`
+                SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at
+                FROM fts_agent_changes fts
+                JOIN agent_changes ac ON ac.id = fts.change_id
+                WHERE fts_agent_changes MATCH ?
+                ORDER BY fts.rank
+                LIMIT ?
+            `).all(safeQuery, limit) as any[];
+            return rows.map(row => this.hydrateAgentChange(row));
+        } catch {
+            return [];
+        }
+    }
+
+    private hydrateAgentChange(row: any): AgentChange {
+        const filePaths = (this.db.prepare(
+            'SELECT file_path FROM agent_change_files WHERE change_id = ?'
+        ).all(row.id) as any[]).map(r => r.file_path);
+
+        return {
+            id: row.id,
+            filePaths,
+            summary: row.summary,
+            why: row.why,
+            changeType: row.change_type,
+            agentId: row.agent_id || undefined,
+            createdAt: row.created_at,
+        };
+    }
+
     // --- Search ---
     searchFiles(query: string) {
         return this.db.prepare('SELECT * FROM files WHERE path LIKE ?').all(`%${query}%`);
@@ -966,7 +1053,7 @@ export class Store {
             .split(/\s+/)
             .filter(t => t.length >= 2);
 
-        const ALLOWED_FTS_TABLES = new Set(['fts_files', 'fts_symbols', 'fts_semantic_tags']);
+        const ALLOWED_FTS_TABLES = new Set(['fts_files', 'fts_symbols', 'fts_semantic_tags', 'fts_agent_changes']);
         const ftsSearch = (table: string, safeQuery: string, scoreMultiplier: number) => {
             if (!ALLOWED_FTS_TABLES.has(table)) return; // Guard against injection
             try {
@@ -1014,7 +1101,52 @@ export class Store {
             }
         }
 
-        // 4. Fallback: Path LIKE for each term
+        // 4. FTS Agent Changes (decision search, ×5 multiplier)
+        // Resolve: fts match → change_id → agent_change_files.file_path → files.id
+        try {
+            const changePhrase = `"${query.replace(/"/g, '""')}"`;
+            const changeMatches = this.db.prepare(`
+                SELECT acf.file_path, fts.rank
+                FROM fts_agent_changes fts
+                JOIN agent_change_files acf ON acf.change_id = fts.change_id
+                WHERE fts_agent_changes MATCH ?
+                LIMIT ?
+            `).all(changePhrase, limit * 2) as { file_path: string, rank: number }[];
+
+            for (const match of changeMatches) {
+                const fileId = this.getFileId(match.file_path);
+                if (fileId) {
+                    const score = -1 * match.rank * 5;
+                    scores.set(fileId, (scores.get(fileId) || 0) + score);
+                }
+            }
+
+            if (terms.length > 1) {
+                const changeOrQuery = terms
+                    .filter(t => t.length >= 3)
+                    .map(t => `"${t.replace(/"/g, '')}"`)
+                    .join(' OR ');
+                if (changeOrQuery) {
+                    const orMatches = this.db.prepare(`
+                        SELECT acf.file_path, fts.rank
+                        FROM fts_agent_changes fts
+                        JOIN agent_change_files acf ON acf.change_id = fts.change_id
+                        WHERE fts_agent_changes MATCH ?
+                        LIMIT ?
+                    `).all(changeOrQuery, limit * 2) as { file_path: string, rank: number }[];
+
+                    for (const match of orMatches) {
+                        const fileId = this.getFileId(match.file_path);
+                        if (fileId) {
+                            const score = -1 * match.rank * 5;
+                            scores.set(fileId, (scores.get(fileId) || 0) + score);
+                        }
+                    }
+                }
+            }
+        } catch (e) { /* ignore FTS errors on empty/missing table */ }
+
+        // 5. Fallback: Path LIKE for each term
         const queryLower = query.toLowerCase();
         const pathMatches = this.db.prepare('SELECT id, path FROM files WHERE path LIKE ? LIMIT ?').all(`%${query}%`, limit) as { id: string, path: string }[];
         for (const file of pathMatches) {
