@@ -664,8 +664,8 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const bcMode = args.mode as string;
                 switch (bcMode) {
                     case 'task': {
-                        if (!args.objective) return { content: [{ type: 'text', text: 'Error: "objective" required for task mode. Example: build_context({mode: "task", objective: "fix auth bug"})' }], isError: true };
-                        const bcObjective = String(args.objective);
+                        if (!args.objective || !String(args.objective).trim()) return { content: [{ type: 'text', text: 'Error: "objective" required for task mode. Example: build_context({mode: "task", objective: "fix auth bug"})' }], isError: true };
+                        const bcObjective = String(args.objective).trim();
                         const bcBudget = Number(args.budget || 8000);
                         const bcProof = (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string;
                         const bcScoredResults = searchService.search(bcObjective, 20);

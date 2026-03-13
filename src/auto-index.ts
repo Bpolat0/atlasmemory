@@ -53,7 +53,7 @@ export async function autoIndex(
     store: Store,
     rootDir: string,
     opts?: AutoIndexOptions
-): Promise<{ files: number; symbols: number; skipped: number }> {
+): Promise<{ files: number; symbols: number; skipped: number; skippedLarge: number }> {
     // Normalize drive letter casing on Windows to prevent duplicate entries
     // e.g., "c:\Dev" vs "C:\Dev" would create separate file entries
     if (process.platform === 'win32' && /^[a-z]:/.test(rootDir)) {
@@ -85,7 +85,8 @@ export async function autoIndex(
         let entries;
         try {
             entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
+        } catch (e: any) {
+            process.stderr.write(`[atlasmemory] Warning: cannot read directory ${dir}: ${e.code || e.message}\n`);
             return;
         }
 

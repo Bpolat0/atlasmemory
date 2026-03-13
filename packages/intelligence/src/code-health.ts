@@ -60,6 +60,7 @@ export class CodeHealthAnalyzer {
 
         for (const commit of commits) {
             const commitDate = new Date(commit.date);
+            if (isNaN(commitDate.getTime())) continue; // Skip malformed dates
             for (const file of commit.files) {
                 let stats = fileStats.get(file);
                 if (!stats) {
@@ -87,7 +88,10 @@ export class CodeHealthAnalyzer {
             const prev = sortedCommits[i - 1];
             const curr = sortedCommits[i];
             if (!fixPattern.test(curr.message || '')) continue;
-            const timeDiff = new Date(curr.date).getTime() - new Date(prev.date).getTime();
+            const currTime = new Date(curr.date).getTime();
+            const prevTime = new Date(prev.date).getTime();
+            if (isNaN(currTime) || isNaN(prevTime)) continue;
+            const timeDiff = currTime - prevTime;
             if (timeDiff > 24 * 60 * 60 * 1000) continue;
             for (const file of curr.files) {
                 if (prev.files.includes(file)) {

@@ -9,6 +9,10 @@ export class TaskPackBuilder {
     constructor(private store: Store) { }
 
     build(objective: string, initialFileIds: string[], tokenBudget: number = 12000, options: any = {}): string {
+        if (!objective || !objective.trim()) {
+            return '# Task Pack v3\n\n(No objective provided. Please specify what you need.)';
+        }
+        if (tokenBudget < 200) tokenBudget = 200; // Minimum viable budget
         const { includeDts = false, snippetMaxLines = 40, proof = 'strict', allowUnproven = false } = options;
         const proofPolicy: EvidencePolicy = proof === 'warn' || proof === 'off' ? proof : (allowUnproven ? 'warn' : 'strict');
         const prover = new ClaimProver(this.store);
