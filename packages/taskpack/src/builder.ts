@@ -117,6 +117,8 @@ export class TaskPackBuilder {
                         let fileHasSnippets = false;
                         const MAX_ANCHORS_PER_FILE = 3;
                         let anchorCount = 0;
+                        // Track shown ranges to skip overlapping anchors (prevents duplicate code blocks)
+                        const shownRanges: Array<{ start: number; end: number }> = [];
 
                         for (const anchorId of card.level1.evidenceAnchorIds) {
                             if (anchorCount >= MAX_ANCHORS_PER_FILE) break;
@@ -126,6 +128,17 @@ export class TaskPackBuilder {
                             const start = Math.max(1, anchor.startLine - 1);
                             const end = anchor.endLine + 1;
                             const actualEnd = Math.min(start + snippetMaxLines, end);
+
+                            // Skip if this range is already substantially covered by a shown range
+                            const rangeLen = actualEnd - start;
+                            const alreadyCovered = shownRanges.some(r => {
+                                const overlapStart = Math.max(start, r.start);
+                                const overlapEnd = Math.min(actualEnd, r.end);
+                                const overlap = Math.max(0, overlapEnd - overlapStart);
+                                return overlap > rangeLen * 0.5; // >50% overlap → skip
+                            });
+                            if (alreadyCovered) continue;
+
                             const text = this.getSnippet(content, start, actualEnd);
 
                             // Skip stale snippets — outdated code misleads AI
@@ -146,6 +159,7 @@ export class TaskPackBuilder {
                             snippetSectionParts.push(snippet + '\n');
                             usedTokens += snippetTokens;
                             anchorCount++;
+                            shownRanges.push({ start, end: actualEnd });
                         }
 
                         if (fileHasSnippets) {
