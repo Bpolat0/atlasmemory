@@ -342,3 +342,17 @@ export interface ProactiveIntelligence {
     enrichment_pending?: number;
     code_health?: string;
 }
+
+// ============================================================
+// Phase 21: Agent Change Memory Types
+// ============================================================
+
+export interface AgentChange {
+    id: string;
+    filePaths: string[];
+    summary: string;
+    why: string;
+    changeType: 'fix' | 'feature' | 'refactor';
+    agentId?: string;
+    createdAt: string;
+}
