@@ -207,11 +207,15 @@ export class BootPackBuilder {
         try {
             const recentChanges = this.store.getRecentChanges(since, 20);
             if (recentChanges.length > 0) {
-                const grouped = new Map<string, typeof recentChanges>();
+                const grouped = new Map<string, { id: string; summary: string; why: string; changeType: string }[]>();
                 for (const change of recentChanges) {
                     for (const fp of change.filePaths) {
                         if (!grouped.has(fp)) grouped.set(fp, []);
-                        grouped.get(fp)!.push(change);
+                        const list = grouped.get(fp)!;
+                        // Dedup: same change touching multiple files shouldn't repeat per-file
+                        if (!list.some(c => c.id === change.id)) {
+                            list.push(change);
+                        }
                     }
                 }
                 const decisionLines: string[] = [];
@@ -224,7 +228,12 @@ export class BootPackBuilder {
                 }
                 push(`## Recent AI Decisions\n${decisionLines.join('\n')}\n`);
             }
-        } catch { /* no agent_changes table yet */ }
+        } catch (e: any) {
+            // Expected: no agent_changes table yet. Unexpected errors: log for debugging.
+            if (e?.message && !e.message.includes('no such table')) {
+                process.stderr.write(`[atlasmemory] agent_changes error: ${e.message}\n`);
+            }
+        }
 
         const flowClaims = prover.applyPolicy(
             Array.from(affectedFlows)

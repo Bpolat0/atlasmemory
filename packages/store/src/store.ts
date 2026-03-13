@@ -31,7 +31,7 @@ export class Store {
     }
 
     // Current schema version — increment when schema changes
-    private static readonly SCHEMA_VERSION = 6;
+    private static readonly SCHEMA_VERSION = 7;
 
     private init() {
         const currentVersion = (this.db.pragma('user_version', { simple: true }) as number) || 0;
@@ -63,6 +63,32 @@ export class Store {
             }
             // v4, v5: new tables handled by SCHEMA (CREATE IF NOT EXISTS)
             // v6: agent_changes tables handled by SCHEMA (CREATE IF NOT EXISTS)
+            // v6→v7: add UNIQUE constraint to agent_change_files + normalize paths
+            if (currentVersion < 7) {
+                try {
+                    // Normalize backslash paths to forward slash
+                    this.db.prepare("UPDATE agent_change_files SET file_path = REPLACE(file_path, '\\', '/')").run();
+                    // Remove duplicates (keep one per change_id+file_path)
+                    this.db.prepare(`
+                        DELETE FROM agent_change_files WHERE rowid NOT IN (
+                            SELECT MIN(rowid) FROM agent_change_files GROUP BY change_id, file_path
+                        )
+                    `).run();
+                    // Recreate table with UNIQUE constraint
+                    this.db.exec(`
+                        CREATE TABLE IF NOT EXISTS agent_change_files_new (
+                            change_id TEXT NOT NULL REFERENCES agent_changes(id) ON DELETE CASCADE,
+                            file_path TEXT NOT NULL,
+                            UNIQUE(change_id, file_path)
+                        );
+                        INSERT OR IGNORE INTO agent_change_files_new SELECT * FROM agent_change_files;
+                        DROP TABLE IF EXISTS agent_change_files;
+                        ALTER TABLE agent_change_files_new RENAME TO agent_change_files;
+                        CREATE INDEX IF NOT EXISTS idx_acf_path ON agent_change_files(file_path);
+                        CREATE INDEX IF NOT EXISTS idx_acf_change ON agent_change_files(change_id);
+                    `);
+                } catch { /* fresh DB or no agent_change_files yet */ }
+            }
 
             // Stamp current version
             this.db.pragma(`user_version = ${Store.SCHEMA_VERSION}`);
@@ -960,22 +986,38 @@ export class Store {
         changeType: 'fix' | 'feature' | 'refactor';
         agentId?: string;
     }): string {
+        if (!record.filePaths || record.filePaths.length === 0) {
+            throw new Error('filePaths must contain at least one file');
+        }
+        // Normalize paths (forward slashes) and deduplicate
+        const normalizedPaths = [...new Set(
+            record.filePaths
+                .filter(p => typeof p === 'string' && p.length > 0)
+                .map(p => p.replace(/\\/g, '/'))
+        )];
+        if (normalizedPaths.length === 0) {
+            throw new Error('filePaths must contain at least one valid file path');
+        }
+        // Cap summary/why to prevent DB bloat
+        const summary = record.summary.slice(0, 500);
+        const why = record.why.slice(0, 500);
+
         const id = crypto.randomUUID();
         this.db.prepare(`
             INSERT INTO agent_changes (id, summary, why, change_type, agent_id)
             VALUES (?, ?, ?, ?, ?)
-        `).run(id, record.summary, record.why, record.changeType, record.agentId || null);
+        `).run(id, summary, why, record.changeType, record.agentId || null);
 
         const insertFile = this.db.prepare(
             'INSERT INTO agent_change_files (change_id, file_path) VALUES (?, ?)'
         );
-        for (const filePath of record.filePaths) {
+        for (const filePath of normalizedPaths) {
             insertFile.run(id, filePath);
         }
 
         this.db.prepare(
             'INSERT INTO fts_agent_changes (summary, why, change_id) VALUES (?, ?, ?)'
-        ).run(record.summary, record.why, id);
+        ).run(summary, why, id);
 
         return id;
     }
@@ -983,77 +1025,91 @@ export class Store {
     getChangesForFile(filePath: string, limit: number = 20): AgentChange[] {
         const normalized = filePath.replace(/\\/g, '/');
         // Try exact match first, then suffix match (handles relative vs absolute paths)
+        // Use self-JOIN to fetch all file_paths per change in one query (no N+1)
         let rows = this.db.prepare(`
-            SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at
+            SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at,
+                   acf2.file_path
             FROM agent_changes ac
             JOIN agent_change_files acf ON acf.change_id = ac.id
+            LEFT JOIN agent_change_files acf2 ON acf2.change_id = ac.id
             WHERE acf.file_path = ? OR acf.file_path = ?
             ORDER BY ac.created_at DESC
-            LIMIT ?
-        `).all(filePath, normalized, limit) as any[];
+        `).all(filePath, normalized) as any[];
 
         if (rows.length === 0) {
             // Fallback: suffix match for relative/absolute path mismatch
             rows = this.db.prepare(`
-                SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at
+                SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at,
+                       acf2.file_path
                 FROM agent_changes ac
                 JOIN agent_change_files acf ON acf.change_id = ac.id
+                LEFT JOIN agent_change_files acf2 ON acf2.change_id = ac.id
                 WHERE ? LIKE '%' || REPLACE(acf.file_path, '\\', '/')
                 ORDER BY ac.created_at DESC
-                LIMIT ?
-            `).all(normalized, limit) as any[];
+            `).all(normalized) as any[];
         }
 
-        return rows.map(row => this.hydrateAgentChange(row));
+        return this.groupChangeRows(rows, limit);
     }
 
     getRecentChanges(since: Date, limit: number = 50): AgentChange[] {
-        // SQLite datetime('now') stores as 'YYYY-MM-DD HH:MM:SS' (space separator)
-        // Date.toISOString() produces 'YYYY-MM-DDTHH:MM:SS.sssZ' (T separator)
-        // Normalize to space-separated format for correct string comparison
+        // SQLite datetime('now') stores as 'YYYY-MM-DD HH:MM:SS' (space separator, UTC)
+        // Normalize to same format for correct string comparison
         const sinceStr = since.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
         const rows = this.db.prepare(`
-            SELECT id, summary, why, change_type, agent_id, created_at
-            FROM agent_changes
-            WHERE created_at >= ?
-            ORDER BY created_at DESC
-            LIMIT ?
-        `).all(sinceStr, limit) as any[];
+            SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at,
+                   acf.file_path
+            FROM agent_changes ac
+            LEFT JOIN agent_change_files acf ON acf.change_id = ac.id
+            WHERE ac.created_at >= ?
+            ORDER BY ac.created_at DESC
+        `).all(sinceStr) as any[];
 
-        return rows.map(row => this.hydrateAgentChange(row));
+        return this.groupChangeRows(rows, limit);
     }
 
     searchAgentChanges(query: string, limit: number = 10): AgentChange[] {
         try {
             const safeQuery = `"${query.replace(/"/g, '""')}"`;
             const rows = this.db.prepare(`
-                SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at
+                SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at,
+                       acf.file_path
                 FROM fts_agent_changes fts
                 JOIN agent_changes ac ON ac.id = fts.change_id
+                LEFT JOIN agent_change_files acf ON acf.change_id = ac.id
                 WHERE fts_agent_changes MATCH ?
                 ORDER BY fts.rank
-                LIMIT ?
-            `).all(safeQuery, limit) as any[];
-            return rows.map(row => this.hydrateAgentChange(row));
+            `).all(safeQuery) as any[];
+            return this.groupChangeRows(rows, limit);
         } catch {
             return [];
         }
     }
 
-    private hydrateAgentChange(row: any): AgentChange {
-        const filePaths = (this.db.prepare(
-            'SELECT file_path FROM agent_change_files WHERE change_id = ?'
-        ).all(row.id) as any[]).map(r => r.file_path);
-
-        return {
-            id: row.id,
-            filePaths,
-            summary: row.summary,
-            why: row.why,
-            changeType: row.change_type,
-            agentId: row.agent_id || undefined,
-            createdAt: row.created_at,
-        };
+    /** Group flat JOIN rows into AgentChange objects (eliminates N+1 queries) */
+    private groupChangeRows(rows: any[], limit: number): AgentChange[] {
+        const map = new Map<string, AgentChange>();
+        const order: string[] = [];
+        for (const row of rows) {
+            if (!map.has(row.id)) {
+                if (order.length >= limit) break;
+                order.push(row.id);
+                map.set(row.id, {
+                    id: row.id,
+                    filePaths: [],
+                    summary: row.summary,
+                    why: row.why,
+                    changeType: row.change_type,
+                    agentId: row.agent_id || undefined,
+                    createdAt: row.created_at,
+                });
+            }
+            const change = map.get(row.id)!;
+            if (row.file_path && !change.filePaths.includes(row.file_path)) {
+                change.filePaths.push(row.file_path);
+            }
+        }
+        return order.map(id => map.get(id)!);
     }
 
     // --- Search ---

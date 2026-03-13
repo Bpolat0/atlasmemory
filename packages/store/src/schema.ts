@@ -218,7 +218,8 @@ export const SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS agent_change_files (
     change_id TEXT NOT NULL REFERENCES agent_changes(id) ON DELETE CASCADE,
-    file_path TEXT NOT NULL
+    file_path TEXT NOT NULL,
+    UNIQUE(change_id, file_path)
   );
   CREATE INDEX IF NOT EXISTS idx_acf_path     ON agent_change_files(file_path);
   CREATE INDEX IF NOT EXISTS idx_acf_change   ON agent_change_files(change_id);

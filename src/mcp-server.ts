@@ -1133,28 +1133,34 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             }
 
             case 'log_decision': {
-                const files = args.files as string[] | undefined;
+                const files = args.files;
                 const summary = String(args.summary || '');
                 const why = String(args.why || '');
-                const changeType = String(args.type || '') as 'fix' | 'feature' | 'refactor';
+                const changeTypeStr = String(args.type || '');
 
-                if (!files || files.length === 0) {
-                    return { isError: true, content: [{ type: 'text', text: 'files array is required' }] };
+                if (!Array.isArray(files) || files.length === 0 || !files.every(f => typeof f === 'string' && f.length > 0)) {
+                    return { isError: true, content: [{ type: 'text', text: 'files must be a non-empty array of file path strings' }] };
                 }
                 if (!summary || !why) {
                     return { isError: true, content: [{ type: 'text', text: 'summary and why are required' }] };
                 }
-                if (!['fix', 'feature', 'refactor'].includes(changeType)) {
+                if (summary.length > 500 || why.length > 500) {
+                    return { isError: true, content: [{ type: 'text', text: 'summary and why must be 500 chars or less' }] };
+                }
+                if (!['fix', 'feature', 'refactor'].includes(changeTypeStr)) {
                     return { isError: true, content: [{ type: 'text', text: "type must be 'fix', 'feature', or 'refactor'" }] };
                 }
+                const changeType = changeTypeStr as 'fix' | 'feature' | 'refactor';
 
-                const id = store.logAgentChange({ filePaths: files, summary, why, changeType });
+                const id = store.logAgentChange({ filePaths: files as string[], summary, why, changeType });
                 return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, files, summary }) }] };
             }
 
             case 'get_file_history': {
                 const filePath = String(args.file_path || '');
-                const limit = Number(args.limit) || 10;
+                let limit = Number(args.limit) || 10;
+                if (!Number.isInteger(limit) || limit < 1) limit = 10;
+                if (limit > 100) limit = 100;
 
                 if (!filePath) {
                     return { isError: true, content: [{ type: 'text', text: 'file_path is required' }] };

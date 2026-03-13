@@ -1,3 +1,7 @@
+// NOTE: This file is NOT used by the esbuild bundle (dist/atlasmemory.js).
+// The actual MCP server entry point is src/mcp-server.ts (via src/main.ts).
+// This file exists for workspace-level `npm run build` but is dead code in production.
+// All Phase 21 fixes (N+1, validation, path normalization) are in src/mcp-server.ts only.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {

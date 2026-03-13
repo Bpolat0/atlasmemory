@@ -447,11 +447,15 @@ export class TaskPackBuilder {
             const changes = this.store.getChangesForFile(card.path, 1);
             if (changes.length > 0) {
                 const change = changes[0];
-                const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-                if (new Date(change.createdAt) >= ninetyDaysAgo) {
-                    const dateStr = change.createdAt.slice(0, 10);
-                    text += `- AI Change: ${change.summary} [${change.changeType} \u00b7 ${dateStr}]\n`;
-                    text += `  Why: ${change.why}\n`;
+                if (change.createdAt) {
+                    // Append ' UTC' for timezone-safe parsing (SQLite stores UTC without marker)
+                    const createdMs = new Date(change.createdAt + ' UTC').getTime();
+                    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+                    if (!isNaN(createdMs) && createdMs >= Date.now() - ninetyDaysMs) {
+                        const dateStr = change.createdAt.slice(0, 10);
+                        text += `- AI Change: ${change.summary} [${change.changeType} \u00b7 ${dateStr}]\n`;
+                        text += `  Why: ${change.why}\n`;
+                    }
                 }
             }
         } catch { /* no agent_changes table yet — safe to skip */ }
