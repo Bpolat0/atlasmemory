@@ -679,7 +679,13 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                         const bcBudget = Number(args.budget || autoBudget('task'));
                         const bcProof = (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string;
                         const bcScoredResults = searchService.search(bcObjective, 20);
-                        const bcFileIds = bcScoredResults.map(r => r.file.id);
+                        // Filter out low-relevance files: keep only files scoring ≥25% of top score.
+                        // Prevents irrelevant files (dashboard, llm, etc.) from eating context budget.
+                        const bcTopScore = bcScoredResults[0]?.score ?? 0;
+                        const bcScoreThreshold = bcTopScore * 0.25;
+                        const bcFileIds = bcScoredResults
+                            .filter(r => r.score >= bcScoreThreshold)
+                            .map(r => r.file.id);
                         if (bcFileIds.length === 0) {
                             const fileCount = store.getFiles().length;
                             const hint = fileCount === 0

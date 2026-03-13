@@ -120,7 +120,21 @@ export class TaskPackBuilder {
                         // Track shown ranges to skip overlapping anchors (prevents duplicate code blocks)
                         const shownRanges: Array<{ start: number; end: number }> = [];
 
-                        for (const anchorId of card.level1.evidenceAnchorIds) {
+                        // Re-rank anchors by query relevance — show code matching the query first,
+                        // not the code at the top of the file (which is often just types/constructors)
+                        const queryTerms = objective.toLowerCase().split(/\W+/).filter(t => t.length > 2);
+                        const rankedAnchorIds = [...card.level1.evidenceAnchorIds].sort((a, b) => {
+                            const anchorA = this.store.getAnchor(a);
+                            const anchorB = this.store.getAnchor(b);
+                            if (!anchorA || !anchorB) return 0;
+                            const snippetA = this.getSnippet(content, anchorA.startLine, anchorA.endLine).toLowerCase();
+                            const snippetB = this.getSnippet(content, anchorB.startLine, anchorB.endLine).toLowerCase();
+                            const scoreA = queryTerms.reduce((n, t) => n + (snippetA.includes(t) ? 1 : 0), 0);
+                            const scoreB = queryTerms.reduce((n, t) => n + (snippetB.includes(t) ? 1 : 0), 0);
+                            return scoreB - scoreA;
+                        });
+
+                        for (const anchorId of rankedAnchorIds) {
                             if (anchorCount >= MAX_ANCHORS_PER_FILE) break;
                             const anchor = this.store.getAnchor(anchorId);
                             if (!anchor) continue;
