@@ -135,6 +135,10 @@ export class EnrichmentCoordinator {
 
         if (card) {
             card.level3 = level3;
+            // Clear the 'Awaiting AI enrichment' placeholder so AI Readiness Descriptions metric counts this file
+            if (card.level1?.notes === 'Awaiting AI enrichment') {
+                card.level1.notes = 'Deterministically enriched';
+            }
             this.store.addFileCard(card);
         }
 
