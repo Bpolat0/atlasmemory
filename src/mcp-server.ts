@@ -463,6 +463,32 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     },
                 },
             },
+            {
+                name: 'log_decision',
+                description: 'Record an AI agent decision after making file changes. Creates institutional memory for future agents. Call this after every meaningful code change.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        files: { type: 'array', items: { type: 'string' }, description: 'File paths that were changed (relative to repo root)' },
+                        summary: { type: 'string', description: 'One sentence: what changed' },
+                        why: { type: 'string', description: 'One sentence: root cause / motivation' },
+                        type: { type: 'string', enum: ['fix', 'feature', 'refactor'], description: 'Type of change' },
+                    },
+                    required: ['files', 'summary', 'why', 'type'],
+                },
+            },
+            {
+                name: 'get_file_history',
+                description: 'Get AI change decision history for a specific file, newest first. Shows what past agents changed and why.',
+                inputSchema: {
+                    type: 'object' as const,
+                    properties: {
+                        file_path: { type: 'string', description: 'File path (relative to repo root)' },
+                        limit: { type: 'number', description: 'Max records to return (default 10)' },
+                    },
+                    required: ['file_path'],
+                },
+            },
         ],
     }));
 
@@ -1104,6 +1130,38 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const report = await enrichmentCoordinator.enrichBatch(limit);
                 const coverage = enrichmentCoordinator.getEnrichmentCoverage();
                 return { content: [{ type: 'text', text: JSON.stringify({ ok: true, ...report, coverage }, null, 2) }] };
+            }
+
+            case 'log_decision': {
+                const files = args.files as string[] | undefined;
+                const summary = String(args.summary || '');
+                const why = String(args.why || '');
+                const changeType = String(args.type || '') as 'fix' | 'feature' | 'refactor';
+
+                if (!files || files.length === 0) {
+                    return { isError: true, content: [{ type: 'text', text: 'files array is required' }] };
+                }
+                if (!summary || !why) {
+                    return { isError: true, content: [{ type: 'text', text: 'summary and why are required' }] };
+                }
+                if (!['fix', 'feature', 'refactor'].includes(changeType)) {
+                    return { isError: true, content: [{ type: 'text', text: "type must be 'fix', 'feature', or 'refactor'" }] };
+                }
+
+                const id = store.logAgentChange({ filePaths: files, summary, why, changeType });
+                return { content: [{ type: 'text', text: JSON.stringify({ ok: true, id, files, summary }) }] };
+            }
+
+            case 'get_file_history': {
+                const filePath = String(args.file_path || '');
+                const limit = Number(args.limit) || 10;
+
+                if (!filePath) {
+                    return { isError: true, content: [{ type: 'text', text: 'file_path is required' }] };
+                }
+
+                const changes = store.getChangesForFile(filePath, limit);
+                return { content: [{ type: 'text', text: JSON.stringify(changes, null, 2) }] };
             }
 
             default:
