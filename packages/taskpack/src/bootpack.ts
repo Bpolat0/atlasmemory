@@ -718,7 +718,8 @@ export class BootPackBuilder {
                     walk(full);
                 } else {
                     const lower = entry.name.toLowerCase();
-                    const isCode = lower.endsWith('.ts') || lower.endsWith('.js') || lower.endsWith('.py');
+                    const codeExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.cs', '.rb', '.c', '.cpp', '.h', '.hpp', '.php'];
+                    const isCode = codeExts.some(ext => lower.endsWith(ext));
                     const excluded = lower.endsWith('.d.ts') || lower.endsWith('.map') || /\.min\.[^./]+$/.test(lower);
                     if (isCode && !excluded) discoverable.push(full);
                 }

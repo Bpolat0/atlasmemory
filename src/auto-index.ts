@@ -152,7 +152,8 @@ export async function autoIndex(
 
                 const langMap: Record<string, string> = {
                     '.ts': 'ts', '.tsx': 'ts', '.js': 'js', '.jsx': 'js',
-                    '.py': 'py', '.go': 'go', '.rs': 'rs', '.java': 'java', '.cs': 'cs'
+                    '.py': 'py', '.go': 'go', '.rs': 'rs', '.java': 'java', '.cs': 'cs',
+                    '.rb': 'rb', '.c': 'c', '.cpp': 'cpp', '.h': 'h', '.hpp': 'hpp', '.php': 'php',
                 };
                 const language = langMap[ext] || ext.slice(1);
                 const loc = content.split('\n').length;
@@ -181,6 +182,18 @@ export async function autoIndex(
 
     await walk(rootDir);
     store.setState('last_index_at', new Date().toISOString());
+
+    // Warn about files with no parser available
+    const langStatus = indexer.getLanguageStatus();
+    if (langStatus.missing.length > 0 && fileCount > 0) {
+        const missingWithFiles = langStatus.missing.filter(ext =>
+            store.getFiles().some(f => f.language === ext && store.getSymbolsForFile(f.id).length === 0)
+        );
+        if (missingWithFiles.length > 0) {
+            process.stderr.write(`[atlasmemory] Warning: parsers not available for: ${missingWithFiles.join(', ')}. Files indexed but symbols not extracted.\n`);
+        }
+    }
+
     return { files: fileCount, symbols: symbolCount, skipped, skippedLarge };
 }
 
