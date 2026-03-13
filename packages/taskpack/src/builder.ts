@@ -449,7 +449,7 @@ export class TaskPackBuilder {
                 const change = changes[0];
                 const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
                 if (new Date(change.createdAt) >= ninetyDaysAgo) {
-                    const dateStr = change.createdAt.split('T')[0];
+                    const dateStr = change.createdAt.slice(0, 10);
                     text += `- AI Change: ${change.summary} [${change.changeType} \u00b7 ${dateStr}]\n`;
                     text += `  Why: ${change.why}\n`;
                 }

@@ -981,26 +981,44 @@ export class Store {
     }
 
     getChangesForFile(filePath: string, limit: number = 20): AgentChange[] {
-        const rows = this.db.prepare(`
+        const normalized = filePath.replace(/\\/g, '/');
+        // Try exact match first, then suffix match (handles relative vs absolute paths)
+        let rows = this.db.prepare(`
             SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at
             FROM agent_changes ac
             JOIN agent_change_files acf ON acf.change_id = ac.id
-            WHERE acf.file_path = ?
+            WHERE acf.file_path = ? OR acf.file_path = ?
             ORDER BY ac.created_at DESC
             LIMIT ?
-        `).all(filePath, limit) as any[];
+        `).all(filePath, normalized, limit) as any[];
+
+        if (rows.length === 0) {
+            // Fallback: suffix match for relative/absolute path mismatch
+            rows = this.db.prepare(`
+                SELECT ac.id, ac.summary, ac.why, ac.change_type, ac.agent_id, ac.created_at
+                FROM agent_changes ac
+                JOIN agent_change_files acf ON acf.change_id = ac.id
+                WHERE ? LIKE '%' || REPLACE(acf.file_path, '\\', '/')
+                ORDER BY ac.created_at DESC
+                LIMIT ?
+            `).all(normalized, limit) as any[];
+        }
 
         return rows.map(row => this.hydrateAgentChange(row));
     }
 
     getRecentChanges(since: Date, limit: number = 50): AgentChange[] {
+        // SQLite datetime('now') stores as 'YYYY-MM-DD HH:MM:SS' (space separator)
+        // Date.toISOString() produces 'YYYY-MM-DDTHH:MM:SS.sssZ' (T separator)
+        // Normalize to space-separated format for correct string comparison
+        const sinceStr = since.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
         const rows = this.db.prepare(`
             SELECT id, summary, why, change_type, agent_id, created_at
             FROM agent_changes
             WHERE created_at >= ?
             ORDER BY created_at DESC
             LIMIT ?
-        `).all(since.toISOString(), limit) as any[];
+        `).all(sinceStr, limit) as any[];
 
         return rows.map(row => this.hydrateAgentChange(row));
     }
@@ -1103,6 +1121,15 @@ export class Store {
 
         // 4. FTS Agent Changes (decision search, ×5 multiplier)
         // Resolve: fts match → change_id → agent_change_files.file_path → files.id
+        // file_path may be relative or absolute — use LIKE suffix match as fallback
+        const resolveFileId = (fp: string): string | undefined => {
+            // Try exact, then LIKE with forward slashes, then with backslashes (Windows)
+            return this.getFileId(fp)
+                || (this.db.prepare('SELECT id FROM files WHERE path LIKE ? LIMIT 1')
+                    .get(`%${fp.replace(/\\/g, '/')}`) as { id: string } | undefined)?.id
+                || (this.db.prepare('SELECT id FROM files WHERE path LIKE ? LIMIT 1')
+                    .get(`%${fp.replace(/\//g, '\\')}`) as { id: string } | undefined)?.id;
+        };
         try {
             const changePhrase = `"${query.replace(/"/g, '""')}"`;
             const changeMatches = this.db.prepare(`
@@ -1114,7 +1141,7 @@ export class Store {
             `).all(changePhrase, limit * 2) as { file_path: string, rank: number }[];
 
             for (const match of changeMatches) {
-                const fileId = this.getFileId(match.file_path);
+                const fileId = resolveFileId(match.file_path);
                 if (fileId) {
                     const score = -1 * match.rank * 5;
                     scores.set(fileId, (scores.get(fileId) || 0) + score);
@@ -1136,7 +1163,7 @@ export class Store {
                     `).all(changeOrQuery, limit * 2) as { file_path: string, rank: number }[];
 
                     for (const match of orMatches) {
-                        const fileId = this.getFileId(match.file_path);
+                        const fileId = resolveFileId(match.file_path);
                         if (fileId) {
                             const score = -1 * match.rank * 5;
                             scores.set(fileId, (scores.get(fileId) || 0) + score);
