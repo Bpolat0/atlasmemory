@@ -120,19 +120,30 @@ export class TaskPackBuilder {
                         // Track shown ranges to skip overlapping anchors (prevents duplicate code blocks)
                         const shownRanges: Array<{ start: number; end: number }> = [];
 
-                        // Re-rank anchors by query relevance — show code matching the query first,
-                        // not the code at the top of the file (which is often just types/constructors)
-                        const queryTerms = objective.toLowerCase().split(/\W+/).filter(t => t.length > 2);
-                        const rankedAnchorIds = [...card.level1.evidenceAnchorIds].sort((a, b) => {
-                            const anchorA = this.store.getAnchor(a);
-                            const anchorB = this.store.getAnchor(b);
-                            if (!anchorA || !anchorB) return 0;
-                            const snippetA = this.getSnippet(content, anchorA.startLine, anchorA.endLine).toLowerCase();
-                            const snippetB = this.getSnippet(content, anchorB.startLine, anchorB.endLine).toLowerCase();
-                            const scoreA = queryTerms.reduce((n, t) => n + (snippetA.includes(t) ? 1 : 0), 0);
-                            const scoreB = queryTerms.reduce((n, t) => n + (snippetB.includes(t) ? 1 : 0), 0);
-                            return scoreB - scoreA;
-                        });
+                        // Scan ALL file anchors and rank by query relevance — not just the 5
+                        // pre-stored evidenceAnchorIds (which miss functions deep in the file).
+                        // This ensures "search ranking" finds scoredSearch, "enrichment" finds enrichDeterministic, etc.
+                        const QUERY_STOPWORDS = new Set([
+                            'the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'what', 'how',
+                            'why', 'when', 'where', 'does', 'are', 'was', 'were', 'has', 'have', 'had',
+                            'can', 'will', 'its', 'not', 'but', 'all', 'any', 'get', 'set', 'use',
+                        ]);
+                        const queryTerms = objective.toLowerCase().split(/\W+/)
+                            .filter(t => t.length > 2 && !QUERY_STOPWORDS.has(t));
+                        const allFileAnchors = this.store.getAnchorsForFile(card.fileId);
+                        const candidateAnchors = allFileAnchors.length > 0
+                            ? allFileAnchors
+                            : card.level1.evidenceAnchorIds
+                                .map(id => this.store.getAnchor(id))
+                                .filter(Boolean) as import('@atlasmemory/core').Anchor[];
+                        const rankedAnchorIds = candidateAnchors
+                            .map(anchor => {
+                                const snip = this.getSnippet(content, anchor.startLine, anchor.endLine).toLowerCase();
+                                const score = queryTerms.reduce((n, t) => n + (snip.includes(t) ? 1 : 0), 0);
+                                return { id: anchor.id, score };
+                            })
+                            .sort((a, b) => b.score - a.score)
+                            .map(s => s.id);
 
                         for (const anchorId of rankedAnchorIds) {
                             if (anchorCount >= MAX_ANCHORS_PER_FILE) break;
@@ -208,6 +219,7 @@ export class TaskPackBuilder {
         // --- P3: Flow Overview (v3) ---
         const flowSectionParts: string[] = ['\n## Flow Overview\n'];
         let flowEntries = 0;
+        const seenFlowTexts = new Set<string>(); // dedup flows with identical call chains
 
         for (const card of fileCards) {
             const flows = this.store.getFlowCardsForFile(card.fileId);
@@ -215,9 +227,13 @@ export class TaskPackBuilder {
 
             for (const flow of flows.slice(0, 3)) {
                 if (!flow.evidenceAnchorIds || flow.evidenceAnchorIds.length === 0) continue;
+                const flowText = flow.trace.map(step => step.symbolName).join(' -> ');
+                if (seenFlowTexts.has(flowText)) continue; // skip duplicate call chains
+                seenFlowTexts.add(flowText);
+
                 const flowClaim = prover.applyPolicy([
                     {
-                        text: flow.trace.map(step => step.symbolName).join(' -> '),
+                        text: flowText,
                         evidenceIds: flow.evidenceAnchorIds.slice(0, 3),
                         fileId: card.fileId
                     }
@@ -317,7 +333,9 @@ export class TaskPackBuilder {
                 symbolSectionParts.push(symbolText);
             }
         }
-        sections.push(symbolSectionParts.join('\n'));
+        if (symbolSectionParts.length > 1) {
+            sections.push(symbolSectionParts.join('\n'));
+        }
 
         // --- P4.5: Call Chain Summary ---
         const callChainParts: string[] = ['\n## Call Chain Summary\n'];
@@ -424,6 +442,19 @@ export class TaskPackBuilder {
             const envList = card.level2.envDependencies.slice(0, 4).map(dep => `${dep.source}:${dep.name}`);
             text += `- Env Dependencies: ${envList.join(', ')}\n`;
         }
+        // Phase 21: AI Change trail (best-effort, inside FILE_CARDS_BUDGET_CAP)
+        try {
+            const changes = this.store.getChangesForFile(card.path, 1);
+            if (changes.length > 0) {
+                const change = changes[0];
+                const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+                if (new Date(change.createdAt) >= ninetyDaysAgo) {
+                    const dateStr = change.createdAt.split('T')[0];
+                    text += `- AI Change: ${change.summary} [${change.changeType} \u00b7 ${dateStr}]\n`;
+                    text += `  Why: ${change.why}\n`;
+                }
+            }
+        } catch { /* no agent_changes table yet — safe to skip */ }
         return text;
     }
 
