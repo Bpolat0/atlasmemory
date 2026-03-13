@@ -1071,17 +1071,18 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 await ensureIndexed();
                 const limit = Number(args.limit || 10);
 
-                if (!enrichmentCoordinator.canSample()) {
-                    return { content: [{ type: 'text', text: 'Sampling not available. This tool requires an MCP client that supports sampling (e.g., Claude Desktop with sampling enabled).' }], isError: true };
-                }
-
                 if (args.file_paths && Array.isArray(args.file_paths)) {
                     const fileIds = (args.file_paths as string[])
                         .map(p => store.getFileId(path.resolve(String(p))))
                         .filter(Boolean) as string[];
-                    await enrichmentCoordinator.enrichIfNeeded(fileIds);
+                    if (enrichmentCoordinator.canSample()) {
+                        await enrichmentCoordinator.enrichIfNeeded(fileIds);
+                    } else {
+                        for (const id of fileIds) enrichmentCoordinator.enrichDeterministic(id);
+                    }
                     const coverage = enrichmentCoordinator.getEnrichmentCoverage();
-                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, enriched: fileIds.length, coverage }, null, 2) }] };
+                    const mode = enrichmentCoordinator.canSample() ? 'sampling' : 'deterministic';
+                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, enriched: fileIds.length, mode, coverage }, null, 2) }] };
                 }
 
                 const report = await enrichmentCoordinator.enrichBatch(limit);

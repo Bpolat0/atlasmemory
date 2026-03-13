@@ -1,6 +1,7 @@
 // packages/intelligence/src/enrichment-coordinator.ts
 import type { Store } from '@atlasmemory/store';
 import type { SamplingClient, Level3FileCard } from '@atlasmemory/core';
+import path from 'path';
 
 const SAMPLING_PROMPT = `Analyze this source file and generate a structured intent card.
 
@@ -35,8 +36,6 @@ export class EnrichmentCoordinator {
     }
 
     async enrichIfNeeded(fileIds: string[]): Promise<void> {
-        if (!this.canSample()) return;
-
         const needsEnrichment = fileIds.filter(id => {
             const card = this.store.getFileCard(id);
             return !card?.level3;
@@ -48,16 +47,18 @@ export class EnrichmentCoordinator {
 
         for (const fileId of batch) {
             try {
-                await this.enrichFile(fileId);
+                if (this.canSample()) {
+                    await this.enrichFile(fileId);
+                } else {
+                    this.enrichDeterministic(fileId);
+                }
             } catch (e) {
                 process.stderr.write(`[atlasmemory] Enrichment failed for ${fileId}: ${e}\n`);
             }
         }
     }
 
-    async enrichBatch(limit: number = 10): Promise<{ enriched: number; failed: number; skipped: number }> {
-        if (!this.canSample()) return { enriched: 0, failed: 0, skipped: 0 };
-
+    async enrichBatch(limit: number = 10): Promise<{ enriched: number; failed: number; skipped: number; mode: string }> {
         const files = this.store.getFiles();
         const unenriched = files.filter(f => {
             const card = this.store.getFileCard(f.id);
@@ -66,17 +67,88 @@ export class EnrichmentCoordinator {
 
         let enriched = 0;
         let failed = 0;
+        const useSampling = this.canSample();
 
         for (const file of unenriched) {
             try {
-                await this.enrichFile(file.id);
+                if (useSampling) {
+                    await this.enrichFile(file.id);
+                } else {
+                    this.enrichDeterministic(file.id);
+                }
                 enriched++;
             } catch (e) {
                 failed++;
             }
         }
 
-        return { enriched, failed, skipped: files.length - unenriched.length };
+        return { enriched, failed, skipped: files.length - unenriched.length, mode: useSampling ? 'sampling' : 'deterministic' };
+    }
+
+    /** Deterministic enrichment — no LLM needed. Extracts tags from path, symbols, imports. */
+    enrichDeterministic(fileId: string): void {
+        const file = this.store.getFileById(fileId);
+        if (!file) return;
+
+        const symbols = this.store.getSymbolsForFile(fileId);
+        const imports = this.store.getImportsForFile(fileId);
+        const card = this.store.getFileCard(fileId);
+
+        const tags = new Set<string>();
+
+        // 1. Path segments (last 3 dirs + filename without ext)
+        const segments = file.path.replace(/\\/g, '/').split('/');
+        const filename = path.basename(file.path).replace(/\.[^.]+$/, '');
+        for (const seg of [...segments.slice(-4, -1), filename]) {
+            this.splitIdentifier(seg).forEach(t => tags.add(t));
+        }
+
+        // 2. Symbol names (top 8)
+        for (const sym of symbols.slice(0, 8)) {
+            this.splitIdentifier(sym.name).forEach(t => tags.add(t));
+        }
+
+        // 3. External imports (package names only)
+        for (const imp of imports) {
+            if (imp.isExternal) {
+                const pkg = imp.importedModule.replace(/^@[^/]+\//, '').split('/')[0];
+                if (pkg.length > 2) tags.add(pkg.toLowerCase());
+            }
+        }
+
+        const STOPWORDS = new Set(['src', 'lib', 'the', 'and', 'for', 'with', 'from', 'index', 'util', 'utils', 'type', 'types', 'main', 'app', 'base', 'new', 'get', 'set', 'has', 'add']);
+        const cleanTags = [...tags]
+            .filter(t => t.length > 2 && !STOPWORDS.has(t))
+            .slice(0, 15);
+
+        const intent = card?.level1?.purpose || card?.level0?.purpose || `${filename} module`;
+
+        // Store minimal level3 so this file is marked enriched
+        const level3: Level3FileCard = {
+            intent: typeof intent === 'string' ? intent : `${filename} module`,
+            solves: '',
+            tags: cleanTags,
+            breaks_if_changed: [],
+            security_notes: null,
+            complexity: 'medium',
+        };
+
+        if (card) {
+            card.level3 = level3;
+            this.store.addFileCard(card);
+        }
+
+        this.store.upsertSemanticTags(fileId, cleanTags, level3.intent);
+    }
+
+    private splitIdentifier(text: string): string[] {
+        return text
+            .replace(/([a-z])([A-Z])/g, '$1 $2')
+            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+            .replace(/[-_.]/g, ' ')
+            .split(/\s+/)
+            .map(t => t.toLowerCase())
+            .filter(t => t.length > 2);
     }
 
     private async enrichFile(fileId: string): Promise<void> {

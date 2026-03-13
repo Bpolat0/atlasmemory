@@ -250,11 +250,11 @@ export class BootPackBuilder {
         const lines = [
             '# AtlasMemory Session Handshake',
             '',
-            '1) Always load bootpack first: atlas bootpack --budget 1500',
-            '2) For each task: atlas taskpack "<objective>" --budget <n>',
-            '3) If unsure, fetch evidence via anchorId/flowCardId before claiming details',
+            '1) Call build_context(mode="project") first for project overview',
+            '2) For each task: build_context(mode="task", objective="...") with appropriate budget',
+            '3) If unsure, call get_allowed_evidence before asserting file details',
             '4) Do not hallucinate; cite evidence IDs in every non-trivial claim',
-            '5) For updates, generate delta: atlas deltapack --since last --budget 800',
+            '5) For updates: build_context(mode="delta", since="last") to see what changed',
             ...(enrichableCount > 0 ? [
                 '',
                 `## Memory Enrichment Available`,
