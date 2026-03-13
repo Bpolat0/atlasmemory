@@ -257,13 +257,11 @@ export class TaskPackBuilder {
 
                             const text = this.getSnippet(content, start, actualEnd);
 
-                            // Check Staleness (Exact match on original range)
-                            // Note: anchor.snippetHash was computed on lines [startLine, endLine] (1-indexed)
-                            // We need to re-compute hash on strict range
+                            // Skip stale snippets — outdated code misleads AI
                             const currentHash = this.hashRange(content, anchor.startLine, anchor.endLine);
-                            const staleWarning = currentHash !== anchor.snippetHash ? ' // [WARNING: STALE - CONTENT CHANGED]' : '';
+                            if (currentHash !== anchor.snippetHash) continue;
 
-                            snippets.push(`// Lines ${start}-${actualEnd}${staleWarning}\n${text}`);
+                            snippets.push(`// Lines ${start}-${actualEnd}\n${text}`);
                         }
                     } else {
                         // Fallback: First N lines but mark as fallback
@@ -438,7 +436,8 @@ export class TaskPackBuilder {
     }
 
     private estimateTokens(text: string): number {
-        return Math.ceil(text.length / 4);
+        // Code averages ~1 token per 3 chars; add 15% safety margin
+        return Math.ceil(text.length / 3 * 1.15);
     }
 
     private buildFallbackFlowTrace(fileId: string): string | undefined {

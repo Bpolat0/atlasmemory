@@ -670,6 +670,13 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                         const bcProof = (['strict', 'warn', 'off'].includes(String(args.proof)) ? args.proof : 'strict') as string;
                         const bcScoredResults = searchService.search(bcObjective, 20);
                         const bcFileIds = bcScoredResults.map(r => r.file.id);
+                        if (bcFileIds.length === 0) {
+                            const fileCount = store.getFiles().length;
+                            const hint = fileCount === 0
+                                ? 'No files indexed. Run index_repo first.'
+                                : `No files matched "${bcObjective}". Try shorter/different keywords. ${fileCount} files indexed.`;
+                            return { content: [{ type: 'text', text: hint }] };
+                        }
                         const bcPack = taskPackBuilder.build(bcObjective, bcFileIds, bcBudget, { proof: bcProof });
                         const bcPackHash = sha256(bcPack);
                         contractService.createSnapshot({ sessionId: args.sessionId ? String(args.sessionId) : undefined, objective: bcObjective, taskpackHash: bcPackHash, proofMode: bcProof });

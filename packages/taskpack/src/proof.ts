@@ -77,7 +77,7 @@ const PROOF_STOPWORDS = new Set([
 // Minimum overlap score for folder-stage candidates.
 // same_file/one_hop have structural code relationships so they don't need this.
 // Folder-stage scans broadly — require at least some term match to count as evidence.
-const MIN_FOLDER_OVERLAP = 0.001;
+const MIN_FOLDER_OVERLAP = 0.15;
 
 export class ClaimProver {
     constructor(private store: Store) {}
@@ -290,7 +290,17 @@ export class ClaimProver {
         });
 
         if (allFiles.length > 0 && canRunStage('folder')) {
-            for (const file of allFiles.slice(0, 40)) {
+            // Use FTS-scored results instead of arbitrary DB order
+            const ftsResults = claimTerms.length > 0
+                ? this.store.scoredSearch(claimTerms.join(' '), 40)
+                : [];
+            const ftsFileIds = new Set(ftsResults.map(r => r.file.id));
+            // Merge: FTS results first, then remaining files (capped at 40 total)
+            const orderedFiles = [
+                ...allFiles.filter(f => ftsFileIds.has(f.id)),
+                ...allFiles.filter(f => !ftsFileIds.has(f.id)),
+            ].slice(0, 40);
+            for (const file of orderedFiles) {
                 const anchors = this.store.getAnchorsForFile(file.id);
                 if (anchors.length === 0) continue;
                 const best = anchors[0];
