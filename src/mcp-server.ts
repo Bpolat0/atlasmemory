@@ -523,6 +523,17 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     results.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
                 }
 
+                // Add relative paths for AI agent convenience (absolute paths are hard to correlate)
+                const rootDir = process.cwd().replace(/\\/g, '/');
+                for (const r of results as any[]) {
+                    if (r.file?.path) {
+                        const norm = r.file.path.replace(/\\/g, '/');
+                        r.file.relativePath = norm.startsWith(rootDir)
+                            ? norm.slice(rootDir.length + 1)
+                            : norm;
+                    }
+                }
+
                 const responseText = JSON.stringify(results, null, 2);
                 budgetTracker.trackUsage(sessionId, 'search_repo', responseText);
 
