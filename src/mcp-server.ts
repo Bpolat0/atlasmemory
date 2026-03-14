@@ -6,7 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { Store } from '@atlasmemory/store';
 import { SearchService, GraphService } from '@atlasmemory/retrieval';
-import { ImpactAnalyzer, PrefetchEngine, DiffEnricher, BudgetTracker, ConversationMemory, SessionLearner, CodeHealthAnalyzer, EnrichmentCoordinator, ProactiveResponseBuilder } from '@atlasmemory/intelligence';
+import { ImpactAnalyzer, PrefetchEngine, DiffEnricher, BudgetTracker, ConversationMemory, SessionLearner, CodeHealthAnalyzer, EnrichmentCoordinator, ProactiveResponseBuilder, ProjectBriefBuilder } from '@atlasmemory/intelligence';
 import { TaskPackBuilder, BootPackBuilder, ContextContractService } from '@atlasmemory/taskpack';
 import { CardGenerator, FlowGenerator, scoreFileCard } from '@atlasmemory/summarizer';
 import { sha256 } from '@atlasmemory/core';
@@ -138,6 +138,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
     // Phase 22: EnrichmentCoordinator with auto-detected backends (CLI free → API paid → deterministic)
     const enrichmentCoordinator = new EnrichmentCoordinator(store);
+    const projectBriefBuilder = new ProjectBriefBuilder(store, codeHealthAnalyzer, sessionLearner, enrichmentCoordinator);
     const proactiveBuilder = new ProactiveResponseBuilder({
         store, codeHealth: codeHealthAnalyzer, enrichmentCoordinator,
         impactAnalyzer, prefetchEngine,
@@ -362,11 +363,12 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'handshake',
-                description: 'Generate compact agent operating protocol.',
+                description: 'Generate compact agent operating protocol with project brief.',
                 inputSchema: {
                     type: 'object',
                     properties: {
-                        budget: { type: 'number', description: 'Token budget (default 400)' },
+                        budget: { type: 'number', description: 'Token budget (default 1300)' },
+                        include_brief: { type: 'boolean', description: 'Include Living Project Brief (default true)' },
                     },
                 },
             },
@@ -960,15 +962,26 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     store.setState('last_active_session', currentSessionId);
                 }
 
-                const result = bootPackBuilder.buildHandshake(Number(args.budget || 400));
-                const hotPaths = sessionLearner.formatHotPaths();
-                const enhanced = hotPaths ? result.text + '\n\n' + hotPaths : result.text;
+                const includeBrief = args.include_brief !== false;
+                const sections: string[] = [];
 
-                await ensureCodeHealth();
-                const riskySummary = codeHealthAnalyzer.getRiskySummary();
+                // Living Project Brief (Phase 23B) — placed first for immediate context
+                if (includeBrief) {
+                    await ensureCodeHealth();
+                    const rootDir = detectProjectRoot(process.cwd());
+                    const { markdown } = projectBriefBuilder.buildBrief({ rootDir });
+                    sections.push(markdown);
+                }
+
+                // Agent operating protocol
+                const result = bootPackBuilder.buildHandshake(Number(args.budget || 1300));
+                sections.push(result.text);
+
+                // Enrichment invitation (if applicable)
                 const enrichmentInvite = enrichmentCoordinator.getEnrichmentInvitation();
-                const fullEnhanced = enhanced + (riskySummary ? '\n\n' + riskySummary : '') + (enrichmentInvite ? '\n\n' + enrichmentInvite : '');
-                return { content: [{ type: 'text', text: fullEnhanced }] };
+                if (enrichmentInvite) sections.push(enrichmentInvite);
+
+                return { content: [{ type: 'text', text: sections.join('\n\n') }] };
             }
 
             case 'session_bootstrap': {

@@ -1,5 +1,6 @@
 {
     "name":  "@atlasmemory/summarizer",
+    "description": "File card generation and flow analysis",
     "version":  "0.1.0",
     "main":  "dist/src/index.js",
     "types":  "dist/src/index.d.ts",

@@ -1,5 +1,6 @@
 {
     "name":  "@atlasmemory/indexer",
+    "description": "Tree-sitter parsing for 11 languages",
     "version":  "0.1.0",
     "main":  "dist/src/index.js",
     "types":  "dist/src/index.d.ts",

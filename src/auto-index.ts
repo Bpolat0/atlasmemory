@@ -84,6 +84,10 @@ function shouldIgnore(relPath: string, ignorePatterns: Set<string>): boolean {
 export interface AutoIndexOptions {
     onFile?: (path: string) => void;
     incremental?: boolean;
+    /** Max files to index (0 = unlimited, default unlimited) */
+    maxFiles?: number;
+    /** Batch size for processing (default 100) */
+    batchSize?: number;
 }
 
 export async function autoIndex(
@@ -117,8 +121,13 @@ export async function autoIndex(
     // Track visited real paths to prevent symlink cycles
     const visitedDirs = new Set<string>();
     let skippedLarge = 0;
+    const maxFiles = opts?.maxFiles || 0;
+    const batchSize = opts?.batchSize || 100;
 
-    async function walk(dir: string) {
+    // Phase 1: Collect file paths (lightweight walk — no parsing, no reading)
+    const filePaths: string[] = [];
+
+    function collectFiles(dir: string): void {
         let entries;
         try {
             entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -133,12 +142,11 @@ export async function autoIndex(
             if (entry.isDirectory()) {
                 if (EXCLUDED_DIRS.has(entry.name)) continue;
 
-                // Symlink cycle protection: resolve real path and skip if already visited
                 let realDir: string;
                 try {
                     realDir = fs.realpathSync(fullPath);
                 } catch {
-                    continue; // Broken symlink — skip
+                    continue;
                 }
                 if (visitedDirs.has(realDir)) continue;
                 visitedDirs.add(realDir);
@@ -147,13 +155,12 @@ export async function autoIndex(
                 if (lower.includes('/synth-') || lower.includes('/reports/')) continue;
                 const relDir = path.relative(rootDir, fullPath);
                 if (shouldIgnore(relDir, ignorePatterns)) continue;
-                await walk(fullPath);
+                collectFiles(fullPath);
             } else if (entry.isFile()) {
                 const ext = path.extname(entry.name).toLowerCase();
                 if (!CODE_EXTENSIONS.has(ext)) continue;
                 if (EXCLUDED_PATTERNS.some(p => p.test(entry.name))) continue;
 
-                // Skip .js/.jsx files when a .ts/.tsx counterpart exists (compiled output)
                 if (ext === '.js' || ext === '.jsx') {
                     const tsCounterpart = ext === '.js'
                         ? fullPath.replace(/\.js$/, '.ts')
@@ -161,7 +168,6 @@ export async function autoIndex(
                     if (fs.existsSync(tsCounterpart)) continue;
                 }
 
-                // Skip files larger than 1MB (likely generated/vendored)
                 try {
                     const stat = fs.statSync(fullPath);
                     if (stat.size > MAX_FILE_SIZE) {
@@ -173,51 +179,66 @@ export async function autoIndex(
                 const relPath = path.relative(rootDir, fullPath);
                 if (shouldIgnore(relPath, ignorePatterns)) continue;
 
-                let content: string;
-                try {
-                    content = fs.readFileSync(fullPath, 'utf-8');
-                } catch { skipped++; continue; }
-                const contentHash = crypto.createHash('sha256').update(content).digest('hex');
-
-                // Skip unchanged files in incremental mode
-                if (incremental && existingHashes.get(fullPath) === contentHash) {
-                    skipped++;
-                    continue;
-                }
-
-                opts?.onFile?.(fullPath);
-
-                const langMap: Record<string, string> = {
-                    '.ts': 'ts', '.tsx': 'ts', '.js': 'js', '.jsx': 'js',
-                    '.py': 'py', '.go': 'go', '.rs': 'rs', '.java': 'java', '.cs': 'cs',
-                    '.rb': 'rb', '.c': 'c', '.cpp': 'cpp', '.h': 'h', '.hpp': 'hpp', '.php': 'php',
-                };
-                const language = langMap[ext] || ext.slice(1);
-                const loc = content.split('\n').length;
-
-                const { symbols, anchors, imports, refs } = indexer.parse(fullPath, content);
-                const fileId = store.addFile(fullPath, language, contentHash, loc, content);
-
-                if (fileId) {
-                    for (const sym of symbols) { sym.fileId = fileId; store.addSymbol(sym); }
-                    for (const anchor of anchors) { anchor.fileId = fileId; store.upsertAnchor(anchor); }
-                    for (const imp of imports) { imp.fileId = fileId; store.addImport(imp); }
-                    for (const ref of refs) { store.addRef(ref); }
-
-                    const flowCards = flowGenerator.rebuildAndStoreForFile(fileId);
-                    const fileCard = await generator.generateFileCard(
-                        fileId, fullPath, symbols, content, anchors, flowCards
-                    );
-                    store.addFileCard(fileCard);
-
-                    fileCount++;
-                    symbolCount += symbols.length;
-                }
+                filePaths.push(fullPath);
+                if (maxFiles > 0 && filePaths.length >= maxFiles) return;
             }
         }
     }
 
-    await walk(rootDir);
+    collectFiles(rootDir);
+
+    // Phase 2: Process files in batches (parse + index)
+    for (let batchStart = 0; batchStart < filePaths.length; batchStart += batchSize) {
+        const batch = filePaths.slice(batchStart, batchStart + batchSize);
+
+        for (const fullPath of batch) {
+            let content: string;
+            try {
+                content = fs.readFileSync(fullPath, 'utf-8');
+            } catch { skipped++; continue; }
+            const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+
+            if (incremental && existingHashes.get(fullPath) === contentHash) {
+                skipped++;
+                continue;
+            }
+
+            opts?.onFile?.(fullPath);
+
+            const ext = path.extname(fullPath).toLowerCase();
+            const langMap: Record<string, string> = {
+                '.ts': 'ts', '.tsx': 'ts', '.js': 'js', '.jsx': 'js',
+                '.py': 'py', '.go': 'go', '.rs': 'rs', '.java': 'java', '.cs': 'cs',
+                '.rb': 'rb', '.c': 'c', '.cpp': 'cpp', '.h': 'h', '.hpp': 'hpp', '.php': 'php',
+            };
+            const language = langMap[ext] || ext.slice(1);
+            const loc = content.split('\n').length;
+
+            const { symbols, anchors, imports, refs } = indexer.parse(fullPath, content);
+            const fileId = store.addFile(fullPath, language, contentHash, loc, content);
+
+            if (fileId) {
+                for (const sym of symbols) { sym.fileId = fileId; store.addSymbol(sym); }
+                for (const anchor of anchors) { anchor.fileId = fileId; store.upsertAnchor(anchor); }
+                for (const imp of imports) { imp.fileId = fileId; store.addImport(imp); }
+                for (const ref of refs) { store.addRef(ref); }
+
+                const flowCards = flowGenerator.rebuildAndStoreForFile(fileId);
+                const fileCard = await generator.generateFileCard(
+                    fileId, fullPath, symbols, content, anchors, flowCards
+                );
+                store.addFileCard(fileCard);
+
+                fileCount++;
+                symbolCount += symbols.length;
+            }
+        }
+
+        // GC hint between batches for large repos
+        if (batchStart + batchSize < filePaths.length) {
+            (global as any).gc?.();
+        }
+    }
     store.setState('last_index_at', new Date().toISOString());
 
     // Warn about files with no parser available

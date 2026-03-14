@@ -94,6 +94,7 @@ export function registerCliCommands(program: Command): void {
         .option('--llm', 'Enable LLM-based summarization')
         .option('--api-key <key>', 'LLM API Key')
         .option('--no-incremental', 'Force full re-indexing')
+        .option('--max-files <number>', 'Maximum number of files to index (for testing)')
         .action(async (dir, options) => {
             const rootDir = dir ? path.resolve(dir) : detectProjectRoot(process.cwd());
 
@@ -116,6 +117,7 @@ export function registerCliCommands(program: Command): void {
             console.log(`\nAtlasMemory - Indexing ${rootDir}\n`);
             let progressCount = 0;
             const startTime = Date.now();
+            const maxFiles = options.maxFiles ? safeParseInt(options.maxFiles, 0) : 0;
             const result = await autoIndex(store, rootDir, {
                 onFile: () => {
                     progressCount++;
@@ -124,6 +126,7 @@ export function registerCliCommands(program: Command): void {
                     }
                 },
                 incremental: options.incremental,
+                maxFiles,
             });
             if (process.stderr.isTTY) {
                 process.stderr.write('\r' + ' '.repeat(40) + '\r');
@@ -257,13 +260,30 @@ export function registerCliCommands(program: Command): void {
         });
 
     program.command('handshake')
-        .description('Generate short operating instructions for agents')
-        .option('--budget <number>', 'Token budget', '400')
-        .action((options) => {
+        .description('Generate operating instructions for agents (with project brief)')
+        .option('--budget <number>', 'Token budget', '1300')
+        .option('--no-brief', 'Omit project brief')
+        .action(async (options) => {
             const store = getStore();
+            const rootDir = detectProjectRoot(process.cwd());
             const builder = new BootPackBuilder(store);
-            const result = builder.buildHandshake(safeParseInt(options.budget, 400));
-            console.log(result.text);
+            const sections: string[] = [];
+
+            // Include project brief by default
+            if (options.brief !== false) {
+                const { CodeHealthAnalyzer, SessionLearner, EnrichmentCoordinator, ProjectBriefBuilder } = await import('@atlasmemory/intelligence');
+                const codeHealth = new CodeHealthAnalyzer(store, rootDir);
+                const sessionLearner = new SessionLearner(store);
+                const enrichmentCoordinator = new EnrichmentCoordinator(store);
+                const briefBuilder = new ProjectBriefBuilder(store, codeHealth, sessionLearner, enrichmentCoordinator);
+                try { await codeHealth.analyzeRepo(); } catch { /* skip */ }
+                const { markdown } = briefBuilder.buildBrief({ rootDir });
+                sections.push(markdown);
+            }
+
+            const result = builder.buildHandshake(safeParseInt(options.budget, 1300));
+            sections.push(result.text);
+            console.log(sections.join('\n\n'));
         });
 
     program.command('refresh')
@@ -683,5 +703,36 @@ export function registerCliCommands(program: Command): void {
             }
 
             console.log(`  Total: ${changes.length} decision(s)\n`);
+        });
+
+    program.command('brief')
+        .description('Show Living Project Brief — a comprehensive project summary')
+        .option('--json', 'Output as JSON')
+        .option('--tokens <number>', 'Max token budget for brief', '900')
+        .action(async (options) => {
+            const store = getStore();
+            const rootDir = detectProjectRoot(process.cwd());
+
+            // Lazy imports to keep CLI fast
+            const { CodeHealthAnalyzer, SessionLearner, EnrichmentCoordinator, ProjectBriefBuilder } = await import('@atlasmemory/intelligence');
+
+            const codeHealth = new CodeHealthAnalyzer(store, rootDir);
+            const sessionLearner = new SessionLearner(store);
+            const enrichmentCoordinator = new EnrichmentCoordinator(store);
+            const briefBuilder = new ProjectBriefBuilder(store, codeHealth, sessionLearner, enrichmentCoordinator);
+
+            // Analyze code health before building brief
+            try { await codeHealth.analyzeRepo(); } catch { /* skip if git not available */ }
+
+            const maxTokens = safeParseInt(options.tokens, 900);
+
+            if (options.json) {
+                const json = briefBuilder.buildBriefJson({ rootDir, maxTokens });
+                console.log(JSON.stringify(json, null, 2));
+            } else {
+                const { markdown, tokens } = briefBuilder.buildBrief({ rootDir, maxTokens });
+                console.log('\n' + markdown);
+                console.log(`\n--- ${tokens} tokens ---\n`);
+            }
         });
 }

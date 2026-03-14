@@ -1,5 +1,6 @@
 {
     "name":  "@atlasmemory/taskpack",
+    "description": "Token-budgeted context packs and proofs",
     "version":  "0.1.0",
     "main":  "dist/src/index.js",
     "types":  "dist/src/index.d.ts",

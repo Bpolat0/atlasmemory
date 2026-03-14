@@ -1,5 +1,6 @@
 {
     "name":  "@atlasmemory/cli",
+    "description": "CLI interface for AtlasMemory",
     "version":  "0.1.0",
     "main":  "dist/src/index.js",
     "bin":  {

@@ -1,5 +1,6 @@
 {
     "name":  "@atlasmemory/mcp-server",
+    "description": "MCP protocol server for AI agent integration",
     "version":  "0.1.0",
     "main":  "dist/src/index.js",
     "scripts":  {

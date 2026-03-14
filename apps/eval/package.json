@@ -1,5 +1,6 @@
 {
     "name": "@atlasmemory/eval",
+    "description": "Evaluation harness for search and indexing quality",
     "version": "0.1.0",
     "private": true,
     "type": "module",
