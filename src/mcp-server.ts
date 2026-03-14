@@ -10,7 +10,7 @@ import { ImpactAnalyzer, PrefetchEngine, DiffEnricher, BudgetTracker, Conversati
 import { TaskPackBuilder, BootPackBuilder, ContextContractService } from '@atlasmemory/taskpack';
 import { CardGenerator, FlowGenerator, scoreFileCard } from '@atlasmemory/summarizer';
 import { sha256 } from '@atlasmemory/core';
-import { autoIndex, isDbEmpty, detectProjectRoot } from './auto-index.js';
+import { autoIndex, isDbEmpty, detectProjectRoot, incrementalReindex, getGitHead, getGitChangedFiles } from './auto-index.js';
 import { VERSION, NAME } from './version.js';
 import path from 'path';
 import fs from 'fs';
@@ -67,21 +67,65 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         reverseRefsBuilt = true;
     }
 
-    // Auto-index guard: ensure DB has data before queries
+    // Auto-index guard: ensure DB has data and is up-to-date with git
     let indexPromise: Promise<void> | null = null;
     async function ensureIndexed(): Promise<void> {
-        if (!isDbEmpty(store)) return;
         if (indexPromise) { await indexPromise; return; }
+
+        const empty = isDbEmpty(store);
+        if (empty) {
+            // First run: full index
+            indexPromise = (async () => {
+                try {
+                    const rootDir = detectProjectRoot(process.cwd());
+                    const result = await autoIndex(store, rootDir);
+                    const head = getGitHead(rootDir);
+                    if (head) store.setState('last_index_git_head', head);
+                    process.stderr.write(
+                        `[atlasmemory] Auto-indexed ${result.files} files, ${result.symbols} symbols\n`
+                    );
+                } catch (error: any) {
+                    indexPromise = null;
+                    throw error;
+                }
+            })();
+            await indexPromise;
+            return;
+        }
+
+        // Incremental: check if git HEAD changed since last index
+        const rootDir = detectProjectRoot(process.cwd());
+        const currentHead = getGitHead(rootDir);
+        if (!currentHead) return; // Not a git repo, skip staleness check
+
+        const storedHead = store.getState('last_index_git_head');
+        if (storedHead === currentHead) return; // No changes
+
+        // Git HEAD changed — incremental re-index
         indexPromise = (async () => {
             try {
-                const rootDir = detectProjectRoot(process.cwd());
-                const result = await autoIndex(store, rootDir);
+                const changedFiles = storedHead
+                    ? getGitChangedFiles(rootDir, storedHead)
+                    : { added: [], modified: [], deleted: [] };
+
+                const totalChanges = changedFiles.added.length + changedFiles.modified.length + changedFiles.deleted.length;
+                if (totalChanges === 0) {
+                    // HEAD changed but no file changes (e.g., merge commit)
+                    store.setState('last_index_git_head', currentHead);
+                    return;
+                }
+
+                const result = await incrementalReindex(store, rootDir, changedFiles);
+                store.setState('last_index_git_head', currentHead);
+                reverseRefsBuilt = false; // Force rebuild after re-index
+                codeHealthAnalyzed = false;
                 process.stderr.write(
-                    `[atlasmemory] Auto-indexed ${result.files} files, ${result.symbols} symbols\n`
+                    `[atlasmemory] Incremental re-index: ${result.files} updated, ${result.deleted} removed\n`
                 );
             } catch (error: any) {
-                indexPromise = null; // Reset so future calls can retry
-                throw error;
+                process.stderr.write(`[atlasmemory] Incremental re-index failed: ${error.message}\n`);
+            } finally {
+                indexPromise = null; // Allow future checks
             }
         })();
         await indexPromise;

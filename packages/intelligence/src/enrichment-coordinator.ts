@@ -11,6 +11,12 @@ import fs from 'fs';
 const MAX_SNIPPET_LINES = 120;
 const MAX_RESPONSE_TOKENS = 300;
 
+export type EnrichmentProgress = (done: number, total: number, filePath: string) => void;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class EnrichmentCoordinator {
     private backends: EnrichmentBackend[];
     private activeBackend: EnrichmentBackend | null = null;
@@ -71,7 +77,7 @@ export class EnrichmentCoordinator {
         }
     }
 
-    async enrichBatch(limit: number = 10, forcedBackend?: string): Promise<{
+    async enrichBatch(limit: number = 10, forcedBackend?: string, onProgress?: EnrichmentProgress): Promise<{
         enriched: number;
         failed: number;
         skipped: number;
@@ -95,10 +101,14 @@ export class EnrichmentCoordinator {
             backend = await this.detectBackend();
         }
 
+        // Inter-call delay: prevent rate limiting
+        const delayMs = backend?.name === 'anthropic-sdk' ? 1000 : backend?.name === 'claude-cli' ? 500 : 0;
+
         let enriched = 0;
         let failed = 0;
 
-        for (const file of unenriched) {
+        for (let i = 0; i < unenriched.length; i++) {
+            const file = unenriched[i];
             try {
                 if (backend) {
                     await this.enrichFileWithBackend(file.id, backend);
@@ -106,9 +116,15 @@ export class EnrichmentCoordinator {
                     this.enrichDeterministic(file.id);
                 }
                 enriched++;
+                onProgress?.(enriched, unenriched.length, file.path);
             } catch (e) {
                 process.stderr.write(`[atlasmemory] Enrichment failed for ${file.path}: ${e}\n`);
                 failed++;
+            }
+
+            // Inter-call delay (skip after last file)
+            if (delayMs > 0 && i < unenriched.length - 1) {
+                await sleep(delayMs);
             }
         }
 

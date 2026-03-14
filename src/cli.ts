@@ -626,4 +626,62 @@ export function registerCliCommands(program: Command): void {
             }
             console.log('');
         });
+
+    program.command('decisions')
+        .description('View AI agent decisions for this project')
+        .option('--file <path>', 'Show decisions for a specific file')
+        .option('--search <query>', 'Full-text search in decisions')
+        .option('--recent [days]', 'Show recent decisions (default: 7 days)')
+        .option('--limit <number>', 'Maximum results', '20')
+        .action(async (options) => {
+            const store = getStore();
+            const limit = Math.min(Math.max(safeParseInt(options.limit, 20), 1), 100);
+
+            let changes: any[] = [];
+            let mode = '';
+
+            if (options.file) {
+                changes = store.getChangesForFile(options.file, limit);
+                mode = `File: ${options.file}`;
+            } else if (options.search) {
+                changes = store.searchAgentChanges(options.search, limit);
+                mode = `Search: "${options.search}"`;
+            } else {
+                const days = typeof options.recent === 'string'
+                    ? safeParseInt(options.recent, 7)
+                    : 7;
+                const since = new Date();
+                since.setDate(since.getDate() - days);
+                changes = store.getRecentChanges(since, limit);
+                mode = `Recent ${days} days`;
+            }
+
+            console.log(`\nAtlasMemory \u2014 Agent Decisions (${mode})\n`);
+
+            if (changes.length === 0) {
+                console.log('  No decisions found.');
+                console.log('  AI agents record decisions via the log_decision MCP tool.');
+                console.log('');
+                return;
+            }
+
+            for (const change of changes) {
+                const date = change.createdAt
+                    ? new Date(change.createdAt + ' UTC').toLocaleString()
+                    : 'unknown';
+                const typeIcon = change.changeType === 'fix' ? '[FIX]'
+                    : change.changeType === 'feature' ? '[FEAT]'
+                    : '[REFACTOR]';
+                console.log(`  ${typeIcon} ${date}`);
+                console.log(`    Summary: ${change.summary}`);
+                console.log(`    Why:     ${change.why}`);
+                if (change.filePaths?.length > 0) {
+                    const displayPaths = change.filePaths.slice(0, 5);
+                    console.log(`    Files:   ${displayPaths.join(', ')}${change.filePaths.length > 5 ? ` (+${change.filePaths.length - 5} more)` : ''}`);
+                }
+                console.log('');
+            }
+
+            console.log(`  Total: ${changes.length} decision(s)\n`);
+        });
 }

@@ -4,6 +4,43 @@ import { CardGenerator, FlowGenerator } from '@atlasmemory/summarizer';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { execSync } from 'child_process';
+
+export function getGitHead(cwd: string): string | null {
+    try {
+        return execSync('git rev-parse HEAD', { cwd, encoding: 'utf-8', timeout: 5000, stdio: 'pipe' }).trim();
+    } catch {
+        return null;
+    }
+}
+
+export function getGitChangedFiles(cwd: string, sinceHead: string): { added: string[]; modified: string[]; deleted: string[] } {
+    try {
+        const output = execSync(`git diff --name-status ${sinceHead} HEAD`, {
+            cwd, encoding: 'utf-8', timeout: 10000, stdio: 'pipe', maxBuffer: 5 * 1024 * 1024,
+        });
+        const added: string[] = [];
+        const modified: string[] = [];
+        const deleted: string[] = [];
+        for (const line of output.trim().split('\n')) {
+            if (!line) continue;
+            const [status, ...fileParts] = line.split('\t');
+            const filePath = fileParts.join('\t');
+            if (status === 'A') added.push(filePath);
+            else if (status === 'M') modified.push(filePath);
+            else if (status === 'D') deleted.push(filePath);
+            else if (status?.startsWith('R')) {
+                // Rename: delete old, add new
+                const [oldPath, newPath] = fileParts;
+                if (oldPath) deleted.push(oldPath);
+                if (newPath) added.push(newPath);
+            }
+        }
+        return { added, modified, deleted };
+    } catch {
+        return { added: [], modified: [], deleted: [] };
+    }
+}
 
 const EXCLUDED_DIRS = new Set([
     'node_modules', '.git', '.atlas', 'dist', 'build',
@@ -195,6 +232,89 @@ export async function autoIndex(
     }
 
     return { files: fileCount, symbols: symbolCount, skipped, skippedLarge };
+}
+
+export async function incrementalReindex(
+    store: Store,
+    rootDir: string,
+    changedFiles: { added: string[]; modified: string[]; deleted: string[] },
+    opts?: AutoIndexOptions,
+): Promise<{ files: number; symbols: number; deleted: number }> {
+    // Normalize drive letter casing on Windows
+    if (process.platform === 'win32' && /^[a-z]:/.test(rootDir)) {
+        rootDir = rootDir[0].toUpperCase() + rootDir.slice(1);
+    }
+
+    const indexer = new Indexer();
+    const generator = new CardGenerator();
+    const flowGenerator = new FlowGenerator(store);
+    let fileCount = 0;
+    let symbolCount = 0;
+    let deletedCount = 0;
+
+    // Delete removed files from DB
+    for (const relPath of changedFiles.deleted) {
+        const absPath = path.resolve(rootDir, relPath);
+        const normalizedAbs = process.platform === 'win32' && /^[a-z]:/.test(absPath)
+            ? absPath[0].toUpperCase() + absPath.slice(1)
+            : absPath;
+        const files = store.getFiles();
+        const match = files.find(f => f.path === normalizedAbs || f.path === absPath);
+        if (match) {
+            store.deleteFile(match.id);
+            deletedCount++;
+        }
+    }
+
+    // Re-index added and modified files
+    const toProcess = [...new Set([...changedFiles.added, ...changedFiles.modified])];
+    for (const relPath of toProcess) {
+        const absPath = path.resolve(rootDir, relPath);
+        const ext = path.extname(absPath).toLowerCase();
+        if (!CODE_EXTENSIONS.has(ext)) continue;
+        if (EXCLUDED_PATTERNS.some(p => p.test(path.basename(absPath)))) continue;
+
+        let content: string;
+        try { content = fs.readFileSync(absPath, 'utf-8'); } catch { continue; }
+
+        try {
+            const stat = fs.statSync(absPath);
+            if (stat.size > MAX_FILE_SIZE) continue;
+        } catch { continue; }
+
+        const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+        const langMap: Record<string, string> = {
+            '.ts': 'ts', '.tsx': 'ts', '.js': 'js', '.jsx': 'js',
+            '.py': 'py', '.go': 'go', '.rs': 'rs', '.java': 'java', '.cs': 'cs',
+            '.rb': 'rb', '.c': 'c', '.cpp': 'cpp', '.h': 'h', '.hpp': 'hpp', '.php': 'php',
+        };
+        const language = langMap[ext] || ext.slice(1);
+        const loc = content.split('\n').length;
+
+        opts?.onFile?.(absPath);
+
+        const { symbols, anchors, imports, refs } = indexer.parse(absPath, content);
+        const fileId = store.addFile(absPath, language, contentHash, loc, content);
+
+        if (fileId) {
+            for (const sym of symbols) { sym.fileId = fileId; store.addSymbol(sym); }
+            for (const anchor of anchors) { anchor.fileId = fileId; store.upsertAnchor(anchor); }
+            for (const imp of imports) { imp.fileId = fileId; store.addImport(imp); }
+            for (const ref of refs) { store.addRef(ref); }
+
+            const flowCards = flowGenerator.rebuildAndStoreForFile(fileId);
+            const fileCard = await generator.generateFileCard(
+                fileId, absPath, symbols, content, anchors, flowCards
+            );
+            store.addFileCard(fileCard);
+
+            fileCount++;
+            symbolCount += symbols.length;
+        }
+    }
+
+    store.setState('last_index_at', new Date().toISOString());
+    return { files: fileCount, symbols: symbolCount, deleted: deletedCount };
 }
 
 export function isDbEmpty(store: Store): boolean {

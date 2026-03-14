@@ -6,6 +6,7 @@ export { ConversationMemory } from './conversation-memory.js';
 export { SessionLearner } from './session-learner.js';
 export { CodeHealthAnalyzer } from './code-health.js';
 export { EnrichmentCoordinator } from './enrichment-coordinator.js';
+export type { EnrichmentProgress } from './enrichment-coordinator.js';
 export { ProactiveResponseBuilder, type IntelligenceServices } from './proactive-response.js';
 export type { EnrichmentBackend } from './enrichment-backend.js';
 export { ClaudeCliBackend } from './backends/claude-cli.js';

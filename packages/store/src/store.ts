@@ -221,6 +221,8 @@ export class Store {
                 const placeholders = symbolIds.map(() => '?').join(',');
                 this.db.prepare(`DELETE FROM refs WHERE from_symbol_id IN (${placeholders})`).run(...symbolIds);
                 this.db.prepare(`DELETE FROM refs WHERE to_symbol_id IN (${placeholders})`).run(...symbolIds);
+                this.db.prepare(`DELETE FROM reverse_refs WHERE from_symbol_id IN (${placeholders}) OR to_symbol_id IN (${placeholders})`).run(...symbolIds, ...symbolIds);
+                this.db.prepare(`DELETE FROM symbol_cards WHERE symbol_id IN (${placeholders})`).run(...symbolIds);
             }
 
             // 2. Delete Symbols
