@@ -206,10 +206,14 @@ export class BootPackBuilder {
         try {
             const recentChanges = this.store.getRecentChanges(since, 50);
             if (recentChanges.length > 0) {
-                // Filter: only show decisions that touch at least one changed file
-                const changedFileSet = new Set(changedFiles.map(f => f.replace(/\\/g, '/')));
+                // Normalize changed files to forward slashes for matching
+                // changedFiles uses absolute paths, agent changes use relative → suffix match
+                const changedNorm = changedFiles.map(f => f.replace(/\\/g, '/'));
                 const relevant = recentChanges.filter(change =>
-                    change.filePaths.some(fp => changedFileSet.has(fp.replace(/\\/g, '/')))
+                    change.filePaths.some(fp => {
+                        const normFp = fp.replace(/\\/g, '/');
+                        return changedNorm.some(cf => cf.endsWith(normFp) || normFp.endsWith(cf));
+                    })
                 );
                 // Dedup by summary (same decision logged multiple times = show once)
                 const seen = new Set<string>();
