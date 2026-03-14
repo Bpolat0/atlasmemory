@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { SCHEMA } from './schema.js';
-import type { CodeSymbol, FileCard, Import, SymbolCard, Anchor, CodeRef, FlowCard, ProjectCard, ContextSnapshot, DbSignature, AgentChange } from '@atlasmemory/core';
+import type { CodeSymbol, FileCard, Import, SymbolCard, Anchor, CodeRef, FlowCard, ProjectCard, ContextSnapshot, DbSignature, AgentChange, ProjectMemory } from '@atlasmemory/core';
 import crypto from 'crypto';
 
 /** Safely parse JSON strings from DB — returns fallback on null/undefined/corrupt data */
@@ -31,7 +31,7 @@ export class Store {
     }
 
     // Current schema version — increment when schema changes
-    private static readonly SCHEMA_VERSION = 7;
+    private static readonly SCHEMA_VERSION = 8;
 
     private init() {
         const currentVersion = (this.db.pragma('user_version', { simple: true }) as number) || 0;
@@ -89,6 +89,8 @@ export class Store {
                     `);
                 } catch { /* fresh DB or no agent_change_files yet */ }
             }
+            // v7→v8: project_memory table handled by SCHEMA (CREATE IF NOT EXISTS)
+            // No data migration needed — table starts empty
 
             // Stamp current version
             this.db.pragma(`user_version = ${Store.SCHEMA_VERSION}`);
@@ -1413,6 +1415,118 @@ export class Store {
 
     clearCodeHealth(): void {
         this.db.prepare('DELETE FROM code_health').run();
+    }
+
+    // --- Phase 24: Organic Memory ---
+
+    getFileCount(): number {
+        const row = this.db.prepare('SELECT COUNT(*) as cnt FROM files').get() as any;
+        return row?.cnt || 0;
+    }
+
+    addProjectMemory(type: string, content: string, why?: string): number {
+        // If adding a priority, archive existing active priorities first
+        if (type === 'priority') {
+            this.db.prepare(`
+                UPDATE project_memory SET status = 'archived', updated_at = datetime('now')
+                WHERE memory_type = 'priority' AND status = 'active'
+            `).run();
+        }
+
+        const result = this.db.prepare(`
+            INSERT INTO project_memory (memory_type, content, why, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'active', datetime('now'), datetime('now'))
+        `).run(type, content.slice(0, 500), why ? why.slice(0, 300) : null);
+
+        return Number(result.lastInsertRowid);
+    }
+
+    getProjectMemories(opts?: { type?: string; status?: string; limit?: number }): ProjectMemory[] {
+        const conditions: string[] = [];
+        const params: any[] = [];
+
+        if (opts?.type) {
+            conditions.push('memory_type = ?');
+            params.push(opts.type);
+        }
+        if (opts?.status && opts.status !== 'all') {
+            conditions.push('status = ?');
+            params.push(opts.status);
+        }
+
+        const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+        const limit = Math.min(Math.max(opts?.limit || 50, 1), 200);
+
+        const rows = this.db.prepare(`
+            SELECT * FROM project_memory ${where} ORDER BY created_at DESC LIMIT ?
+        `).all(...params, limit) as any[];
+
+        return rows.map(row => ({
+            id: row.id,
+            memoryType: row.memory_type,
+            content: row.content,
+            why: row.why || undefined,
+            status: row.status,
+            resolvedAt: row.resolved_at || undefined,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        }));
+    }
+
+    resolveProjectMemory(id: number): void {
+        this.db.prepare(`
+            UPDATE project_memory SET status = 'resolved', resolved_at = datetime('now'), updated_at = datetime('now')
+            WHERE id = ?
+        `).run(id);
+    }
+
+    deleteProjectMemory(id: number): void {
+        this.db.prepare('DELETE FROM project_memory WHERE id = ?').run(id);
+    }
+
+    archiveStaleMemories(): number {
+        let archived = 0;
+
+        // Resolved gaps older than 30 days → archived
+        const r1 = this.db.prepare(`
+            UPDATE project_memory SET status = 'archived', updated_at = datetime('now')
+            WHERE status = 'resolved' AND memory_type = 'gap'
+            AND resolved_at < datetime('now', '-30 days')
+        `).run();
+        archived += r1.changes;
+
+        // Old context entries (keep only 3 most recent)
+        const r2 = this.db.prepare(`
+            UPDATE project_memory SET status = 'archived', updated_at = datetime('now')
+            WHERE memory_type = 'context' AND status = 'active'
+            AND id NOT IN (
+                SELECT id FROM project_memory
+                WHERE memory_type = 'context' AND status = 'active'
+                ORDER BY created_at DESC LIMIT 3
+            )
+        `).run();
+        archived += r2.changes;
+
+        // Priorities replaced by newer active priority → archived
+        const r3 = this.db.prepare(`
+            UPDATE project_memory SET status = 'archived', updated_at = datetime('now')
+            WHERE memory_type = 'priority' AND status = 'active'
+            AND id NOT IN (
+                SELECT id FROM project_memory
+                WHERE memory_type = 'priority' AND status = 'active'
+                ORDER BY created_at DESC LIMIT 1
+            )
+        `).run();
+        archived += r3.changes;
+
+        return archived;
+    }
+
+    archiveContextMemories(): void {
+        this.db.prepare(`
+            UPDATE project_memory SET status = 'archived', updated_at = datetime('now')
+            WHERE memory_type = 'context' AND status = 'active'
+        `).run();
     }
 
     close() {

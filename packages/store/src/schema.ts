@@ -229,4 +229,17 @@ export const SCHEMA = `
     summary, why, change_id UNINDEXED,
     tokenize='porter ascii'
   );
+
+  -- Phase 24: Organic Memory (persistent project-level memories)
+  CREATE TABLE IF NOT EXISTS project_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    why TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    resolved_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_pm_type_status ON project_memory(memory_type, status);
 `;

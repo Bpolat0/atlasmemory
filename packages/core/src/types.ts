@@ -351,3 +351,21 @@ export interface AgentChange {
     agentId?: string;
     createdAt: string;
 }
+
+// ============================================================
+// Phase 24: Organic Memory Types
+// ============================================================
+
+export type MemoryType = 'milestone' | 'gap' | 'learning' | 'priority' | 'context';
+export type MemoryStatus = 'active' | 'resolved' | 'archived';
+
+export interface ProjectMemory {
+    id: number;
+    memoryType: MemoryType;
+    content: string;
+    why?: string;
+    status: MemoryStatus;
+    resolvedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+}

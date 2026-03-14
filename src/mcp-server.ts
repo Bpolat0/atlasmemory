@@ -456,6 +456,46 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 },
             },
             {
+                name: 'remember_project',
+                description: 'Store a project-level memory that persists across sessions. Use after significant work.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        memory_type: {
+                            type: 'string',
+                            enum: ['milestone', 'gap', 'learning', 'priority', 'context'],
+                            description: 'milestone=completed work, gap=known issue, learning=experience, priority=work order, context=active work',
+                        },
+                        content: { type: 'string', description: 'What to remember (max 500 chars)' },
+                        why: { type: 'string', description: 'Why this matters (max 300 chars)' },
+                    },
+                    required: ['memory_type', 'content'],
+                },
+            },
+            {
+                name: 'resolve_project_memory',
+                description: 'Mark a project memory as resolved (typically a gap that was fixed)',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'number', description: 'Memory ID (from get_project_memory output)' },
+                    },
+                    required: ['id'],
+                },
+            },
+            {
+                name: 'get_project_memory',
+                description: 'Retrieve project memories (milestones, gaps, learnings, priorities)',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        memory_type: { type: 'string', description: 'Filter by type (omit for all)' },
+                        status: { type: 'string', enum: ['active', 'resolved', 'all'], default: 'active' },
+                        limit: { type: 'number', default: 20 },
+                    },
+                },
+            },
+            {
                 name: 'remember',
                 description: 'Record a constraint or decision for the current session. Constraints are surfaced in future context builds to prevent conflicting actions.',
                 inputSchema: {
@@ -1121,6 +1161,51 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const budgetReport = budgetTracker.trackUsage(sessionId, 'smart_diff', formatted);
 
                 return { content: [{ type: 'text', text: formatted + '\n\n' + budgetTracker.formatBudgetHeader(budgetReport) }] };
+            }
+
+            case 'remember_project': {
+                const memType = String(args.memory_type || '');
+                const content = String(args.content || '');
+                if (!memType || !content) {
+                    return { content: [{ type: 'text', text: 'Missing required: memory_type and content' }], isError: true };
+                }
+                const validTypes = ['milestone', 'gap', 'learning', 'priority', 'context'];
+                if (!validTypes.includes(memType)) {
+                    return { content: [{ type: 'text', text: `Invalid memory_type. Must be one of: ${validTypes.join(', ')}` }], isError: true };
+                }
+                const why = args.why ? String(args.why) : undefined;
+                const id = store.addProjectMemory(memType, content, why);
+                const typeLabel = memType.toUpperCase();
+                return { content: [{ type: 'text', text: `Stored ${typeLabel}-${id}: "${content}"${why ? ' — ' + why : ''}` }] };
+            }
+
+            case 'resolve_project_memory': {
+                const id = Number(args.id);
+                if (!id || isNaN(id)) {
+                    return { content: [{ type: 'text', text: 'Missing required: id (number)' }], isError: true };
+                }
+                store.resolveProjectMemory(id);
+                return { content: [{ type: 'text', text: `Resolved memory #${id}` }] };
+            }
+
+            case 'get_project_memory': {
+                const memories = store.getProjectMemories({
+                    type: args.memory_type ? String(args.memory_type) : undefined,
+                    status: args.status ? String(args.status) : 'active',
+                    limit: args.limit ? Number(args.limit) : 20,
+                });
+
+                if (memories.length === 0) {
+                    return { content: [{ type: 'text', text: 'No project memories found.' }] };
+                }
+
+                const lines: string[] = [];
+                for (const m of memories) {
+                    const prefix = `[${m.memoryType.toUpperCase()}-${m.id}]`;
+                    const statusTag = m.status !== 'active' ? ` (${m.status})` : '';
+                    lines.push(`${prefix}${statusTag} ${m.content}${m.why ? ' — ' + m.why : ''}`);
+                }
+                return { content: [{ type: 'text', text: lines.join('\n') }] };
             }
 
             case 'remember': {
