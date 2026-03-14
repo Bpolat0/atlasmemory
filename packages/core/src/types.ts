@@ -311,11 +311,6 @@ export interface ConversationContext {
 // Phase 20: Collaborative Intelligence Types
 // ============================================================
 
-export interface SamplingClient {
-    canSample(): boolean;
-    requestCompletion(prompt: string, maxTokens: number): Promise<string>;
-}
-
 export interface Level3FileCard {
     intent: string;
     solves: string;

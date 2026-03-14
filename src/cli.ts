@@ -570,4 +570,60 @@ export function registerCliCommands(program: Command): void {
                 }
             }
         });
+
+    program.command('enrich')
+        .description('Enrich file cards with AI-generated semantic tags')
+        .option('--batch <number>', 'Number of files to enrich', '10')
+        .option('--backend <type>', 'Force backend: cli | api', '')
+        .option('--all', 'Enrich all unenriched files')
+        .option('--dry-run', 'Show what would be enriched without doing it')
+        .action(async (options) => {
+            const store = getStore();
+            const { EnrichmentCoordinator } = await import('@atlasmemory/intelligence');
+            const coordinator = new EnrichmentCoordinator(store);
+
+            const coverage = coordinator.getEnrichmentCoverage();
+            const backend = await coordinator.detectBackend();
+
+            if (options.dryRun) {
+                console.log('\nAtlasMemory Enrichment \u2014 Dry Run\n');
+                console.log(`  Backend:     ${backend?.name || 'deterministic (no AI backend available)'}`);
+                console.log(`  Coverage:    ${coverage.enriched}/${coverage.total} files enriched (${coverage.percentage}%)`);
+                const remaining = coverage.total - coverage.enriched;
+                const batch = options.all ? remaining : Math.min(safeParseInt(options.batch, 10), remaining);
+                console.log(`  Would enrich: ${batch} files`);
+                if (!backend) {
+                    console.log('\n  No AI backend available:');
+                    console.log('    - Install Claude CLI (free): https://docs.anthropic.com/claude-code');
+                    console.log('    - Or set ANTHROPIC_API_KEY for API access');
+                }
+                return;
+            }
+
+            const limit = options.all ? coverage.total : safeParseInt(options.batch, 10);
+            const forcedBackend = options.backend === 'cli' ? 'claude-cli'
+                : options.backend === 'api' ? 'anthropic-sdk'
+                : undefined;
+
+            console.log(`\nAtlasMemory \u2014 Enriching with ${backend?.name || 'deterministic'} backend...\n`);
+
+            const startTime = Date.now();
+            const report = await coordinator.enrichBatch(limit, forcedBackend);
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+            const newCoverage = coordinator.getEnrichmentCoverage();
+            console.log(`  [OK] Enriched ${report.enriched} files (${elapsed}s)`);
+            if (report.failed > 0) console.log(`  [!!] Failed: ${report.failed}`);
+            console.log(`  [OK] Skipped ${report.skipped} already-enriched files`);
+            console.log(`  [OK] Backend: ${report.backend}`);
+            console.log(`  [OK] Coverage: ${newCoverage.enriched}/${newCoverage.total} (${newCoverage.percentage}%)`);
+
+            if (newCoverage.percentage < 100) {
+                const remaining = newCoverage.total - newCoverage.enriched;
+                console.log(`\n  ${remaining} files remaining. Run \`atlas enrich --all\` to enrich all.`);
+            } else {
+                console.log('\n  All files enriched! Search quality is at maximum.');
+            }
+            console.log('');
+        });
 }

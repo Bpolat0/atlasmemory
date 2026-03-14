@@ -1,38 +1,50 @@
 // packages/intelligence/src/enrichment-coordinator.ts
 import type { Store } from '@atlasmemory/store';
-import type { SamplingClient, Level3FileCard } from '@atlasmemory/core';
+import type { Level3FileCard } from '@atlasmemory/core';
+import type { EnrichmentBackend } from './enrichment-backend.js';
+import { ClaudeCliBackend } from './backends/claude-cli.js';
+import { AnthropicSdkBackend } from './backends/anthropic-sdk.js';
+import { buildEnrichmentPrompt } from './enrichment-prompt.js';
 import path from 'path';
+import fs from 'fs';
 
-const SAMPLING_PROMPT = `Analyze this source file and generate a structured intent card.
-
-File: {path}
-Exports: {symbolNames}
-Imports: {importPaths}
-Code (first 100 lines):
-\`\`\`
-{snippet}
-\`\`\`
-
-Return ONLY valid JSON:
-{
-  "intent": "one-sentence description of what this file does and WHY",
-  "solves": "what problem this code solves",
-  "tags": ["5-15 semantic search terms, synonyms, concepts"],
-  "breaks_if_changed": ["file paths that would break if this file changes"],
-  "security_notes": "security considerations or null",
-  "complexity": "low|medium|high"
-}`;
-
-const MAX_BATCH_SIZE = 3;
+const MAX_SNIPPET_LINES = 120;
+const MAX_RESPONSE_TOKENS = 300;
 
 export class EnrichmentCoordinator {
+    private backends: EnrichmentBackend[];
+    private activeBackend: EnrichmentBackend | null = null;
+
     constructor(
         private store: Store,
-        private samplingClient: SamplingClient,
-    ) {}
+        backends?: EnrichmentBackend[],
+    ) {
+        // Default backends: CLI (free) → API (paid)
+        this.backends = backends || [
+            new ClaudeCliBackend(),
+            new AnthropicSdkBackend(),
+        ];
+    }
 
-    canSample(): boolean {
-        return this.samplingClient.canSample();
+    /** Detect the best available backend. Returns null if none available. */
+    async detectBackend(): Promise<EnrichmentBackend | null> {
+        if (this.activeBackend) return this.activeBackend;
+        for (const backend of this.backends) {
+            try {
+                if (await backend.isAvailable()) {
+                    this.activeBackend = backend;
+                    return backend;
+                }
+            } catch {
+                // Skip unavailable backends
+            }
+        }
+        return null;
+    }
+
+    /** Returns true if an AI backend is available (CLI or API) */
+    async hasAiBackend(): Promise<boolean> {
+        return (await this.detectBackend()) !== null;
     }
 
     async enrichIfNeeded(fileIds: string[]): Promise<void> {
@@ -43,12 +55,13 @@ export class EnrichmentCoordinator {
 
         if (needsEnrichment.length === 0) return;
 
-        const batch = needsEnrichment.slice(0, MAX_BATCH_SIZE);
+        const backend = await this.detectBackend();
+        const batch = needsEnrichment.slice(0, 3);
 
         for (const fileId of batch) {
             try {
-                if (this.canSample()) {
-                    await this.enrichFile(fileId);
+                if (backend) {
+                    await this.enrichFileWithBackend(fileId, backend);
                 } else {
                     this.enrichDeterministic(fileId);
                 }
@@ -58,31 +71,146 @@ export class EnrichmentCoordinator {
         }
     }
 
-    async enrichBatch(limit: number = 10): Promise<{ enriched: number; failed: number; skipped: number; mode: string }> {
+    async enrichBatch(limit: number = 10, forcedBackend?: string): Promise<{
+        enriched: number;
+        failed: number;
+        skipped: number;
+        mode: string;
+        backend: string;
+    }> {
         const files = this.store.getFiles();
         const unenriched = files.filter(f => {
             const card = this.store.getFileCard(f.id);
             return !card?.level3;
         }).slice(0, limit);
 
+        let backend: EnrichmentBackend | null = null;
+
+        if (forcedBackend) {
+            backend = this.backends.find(b => b.name === forcedBackend) || null;
+            if (backend && !(await backend.isAvailable())) {
+                throw new Error(`Backend "${forcedBackend}" is not available`);
+            }
+        } else {
+            backend = await this.detectBackend();
+        }
+
         let enriched = 0;
         let failed = 0;
-        const useSampling = this.canSample();
 
         for (const file of unenriched) {
             try {
-                if (useSampling) {
-                    await this.enrichFile(file.id);
+                if (backend) {
+                    await this.enrichFileWithBackend(file.id, backend);
                 } else {
                     this.enrichDeterministic(file.id);
                 }
                 enriched++;
             } catch (e) {
+                process.stderr.write(`[atlasmemory] Enrichment failed for ${file.path}: ${e}\n`);
                 failed++;
             }
         }
 
-        return { enriched, failed, skipped: files.length - unenriched.length, mode: useSampling ? 'sampling' : 'deterministic' };
+        return {
+            enriched,
+            failed,
+            skipped: files.length - unenriched.length,
+            mode: backend ? 'ai' : 'deterministic',
+            backend: backend?.name || 'deterministic',
+        };
+    }
+
+    /** AI-powered enrichment using a backend */
+    private async enrichFileWithBackend(fileId: string, backend: EnrichmentBackend): Promise<void> {
+        const file = this.store.getFileById(fileId);
+        if (!file) return;
+
+        const symbols = this.store.getSymbolsForFile(fileId);
+        const imports = this.store.getImportsForFile(fileId);
+
+        // Read file content for snippet
+        let codeSnippet = `(${symbols.length} symbols)`;
+        try {
+            if (fs.existsSync(file.path)) {
+                const content = fs.readFileSync(file.path, 'utf-8');
+                const lines = content.split('\n').slice(0, MAX_SNIPPET_LINES);
+                codeSnippet = lines.join('\n');
+            }
+        } catch {
+            // Use symbol summary as fallback
+        }
+
+        const prompt = buildEnrichmentPrompt({
+            filePath: file.path,
+            symbolSignatures: symbols.map(s => `${s.kind} ${s.name}: ${s.signature}`),
+            importPaths: imports.map(i => i.importedModule),
+            codeSnippet,
+        });
+
+        let response: string;
+        try {
+            response = await backend.enrich(prompt, MAX_RESPONSE_TOKENS);
+        } catch (e) {
+            process.stderr.write(`[atlasmemory] Backend ${backend.name} failed for ${file.path}: ${e}\n`);
+            // Fallback to deterministic
+            this.enrichDeterministic(fileId);
+            return;
+        }
+
+        // Parse JSON response
+        let parsed: any;
+        try {
+            // Strip markdown code fences if present
+            const cleaned = response.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '');
+            parsed = JSON.parse(cleaned);
+        } catch {
+            // Retry with stricter instruction
+            try {
+                const retryResponse = await backend.enrich(
+                    prompt + '\n\nIMPORTANT: Return ONLY the raw JSON object. No markdown, no code fences, no explanation.',
+                    MAX_RESPONSE_TOKENS,
+                );
+                const cleaned = retryResponse.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '');
+                parsed = JSON.parse(cleaned);
+            } catch {
+                process.stderr.write(`[atlasmemory] Invalid JSON from ${backend.name} for ${file.path}, falling back to deterministic\n`);
+                this.enrichDeterministic(fileId);
+                return;
+            }
+        }
+
+        if (!parsed.intent || !parsed.tags || !Array.isArray(parsed.tags)) {
+            process.stderr.write(`[atlasmemory] Invalid Level3 card structure from ${backend.name} for ${file.path}\n`);
+            this.enrichDeterministic(fileId);
+            return;
+        }
+
+        const level3: Level3FileCard = {
+            intent: String(parsed.intent),
+            solves: String(parsed.solves || ''),
+            tags: parsed.tags.map(String).slice(0, 15),
+            breaks_if_changed: (parsed.breaks_if_changed || []).map(String),
+            security_notes: parsed.security_notes ? String(parsed.security_notes) : null,
+            complexity: ['low', 'medium', 'high'].includes(parsed.complexity) ? parsed.complexity : 'medium',
+        };
+
+        // Store Level3 on file card
+        const existingCard = this.store.getFileCard(fileId);
+        if (existingCard) {
+            existingCard.level3 = level3;
+            if (existingCard.level1?.notes === 'Awaiting AI enrichment') {
+                existingCard.level1.notes = `Enriched by ${backend.name}`;
+            }
+            const { createHash } = await import('crypto');
+            existingCard.cardHash = createHash('sha256')
+                .update(JSON.stringify(existingCard.level0) + JSON.stringify(existingCard.level1 || {}) + JSON.stringify(existingCard.level2 || {}) + JSON.stringify(level3))
+                .digest('hex');
+            this.store.addFileCard(existingCard);
+        }
+
+        // Store semantic tags in FTS
+        this.store.upsertSemanticTags(fileId, level3.tags, level3.intent);
     }
 
     /** Deterministic enrichment — no LLM needed. Extracts tags from path, symbols, imports. */
@@ -123,7 +251,6 @@ export class EnrichmentCoordinator {
 
         const intent = card?.level1?.purpose || card?.level0?.purpose || `${filename} module`;
 
-        // Store minimal level3 so this file is marked enriched
         const level3: Level3FileCard = {
             intent: typeof intent === 'string' ? intent : `${filename} module`,
             solves: '',
@@ -135,7 +262,6 @@ export class EnrichmentCoordinator {
 
         if (card) {
             card.level3 = level3;
-            // Clear the 'Awaiting AI enrichment' placeholder so AI Readiness Descriptions metric counts this file
             if (card.level1?.notes === 'Awaiting AI enrichment') {
                 card.level1.notes = 'Deterministically enriched';
             }
@@ -153,71 +279,6 @@ export class EnrichmentCoordinator {
             .split(/\s+/)
             .map(t => t.toLowerCase())
             .filter(t => t.length > 2);
-    }
-
-    private async enrichFile(fileId: string): Promise<void> {
-        const file = this.store.getFileById(fileId);
-        if (!file) return;
-
-        const symbols = this.store.getSymbolsForFile(fileId);
-        const imports = this.store.getImportsForFile(fileId);
-
-        const symbolNames = symbols.map(s => s.name).join(', ') || 'none';
-        const importPaths = imports.map(i => i.importedModule).join(', ') || 'none';
-        const snippet = `(${symbols.length} symbols: ${symbolNames})`;
-
-        const prompt = SAMPLING_PROMPT
-            .replace('{path}', file.path)
-            .replace('{symbolNames}', symbolNames)
-            .replace('{importPaths}', importPaths)
-            .replace('{snippet}', snippet);
-
-        const response = await this.samplingClient.requestCompletion(prompt, 500);
-
-        let parsed: Level3FileCard;
-        try {
-            parsed = JSON.parse(response);
-        } catch (e) {
-            // Retry once with stricter instruction
-            try {
-                const retryResponse = await this.samplingClient.requestCompletion(
-                    prompt + '\n\nIMPORTANT: Return ONLY the JSON object, no explanation or markdown.',
-                    500,
-                );
-                parsed = JSON.parse(retryResponse);
-            } catch {
-                process.stderr.write(`[atlasmemory] Invalid JSON from sampling for ${file.path}\n`);
-                return;
-            }
-        }
-
-        if (!parsed.intent || !parsed.tags || !Array.isArray(parsed.tags)) {
-            process.stderr.write(`[atlasmemory] Invalid Level3 card structure for ${file.path}\n`);
-            return;
-        }
-
-        const level3: Level3FileCard = {
-            intent: String(parsed.intent),
-            solves: String(parsed.solves || ''),
-            tags: parsed.tags.map(String).slice(0, 15),
-            breaks_if_changed: (parsed.breaks_if_changed || []).map(String),
-            security_notes: parsed.security_notes ? String(parsed.security_notes) : null,
-            complexity: ['low', 'medium', 'high'].includes(parsed.complexity) ? parsed.complexity : 'medium',
-        };
-
-        // Store Level3 on file card
-        const existingCard = this.store.getFileCard(fileId);
-        if (existingCard) {
-            existingCard.level3 = level3;
-            const { createHash } = await import('crypto');
-            existingCard.cardHash = createHash('sha256')
-                .update(JSON.stringify(existingCard.level0) + JSON.stringify(existingCard.level1 || {}) + JSON.stringify(existingCard.level2 || {}) + JSON.stringify(level3))
-                .digest('hex');
-            this.store.addFileCard(existingCard);
-        }
-
-        // Store semantic tags in FTS
-        this.store.upsertSemanticTags(fileId, level3.tags, level3.intent);
     }
 
     getEnrichmentCoverage(): { enriched: number; total: number; percentage: number } {
@@ -239,7 +300,7 @@ export class EnrichmentCoordinator {
         const coverage = this.getEnrichmentCoverage();
         if (coverage.percentage >= 100) return '';
         const remaining = coverage.total - coverage.enriched;
-        return `💡 ${remaining} files can be enriched with semantic tags for better search. ` +
-            `Use the \`enrich_files\` tool to add AI-generated intent cards and concept-level search tags.`;
+        return `\u{1F4A1} ${remaining} files can be enriched with semantic tags for better search. ` +
+            `Use the \`enrich_files\` tool or run \`atlas enrich\` to add AI-generated concept tags.`;
     }
 }

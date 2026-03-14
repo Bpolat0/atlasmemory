@@ -89,28 +89,11 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
     const server = new Server(
         { name: NAME, version: VERSION },
-        { capabilities: { tools: {}, sampling: {} } }
+        { capabilities: { tools: {} } }
     );
 
-    // Phase 20: SamplingClient adapter — lazy, checks client capabilities at call time
-    const lazySamplingClient: import('@atlasmemory/core').SamplingClient = {
-        canSample: () => {
-            try {
-                return !!(server as any)._clientCapabilities?.sampling;
-            } catch { return false; }
-        },
-        requestCompletion: async (prompt: string, maxTokens: number) => {
-            const { CreateMessageRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
-            const result = await server.request(CreateMessageRequestSchema, {
-                messages: [{ role: 'user', content: { type: 'text', text: prompt } }],
-                maxTokens,
-            });
-            if (result.content.type === 'text') return result.content.text;
-            return '';
-        },
-    };
-
-    const enrichmentCoordinator = new EnrichmentCoordinator(store, lazySamplingClient);
+    // Phase 22: EnrichmentCoordinator with auto-detected backends (CLI free → API paid → deterministic)
+    const enrichmentCoordinator = new EnrichmentCoordinator(store);
     const proactiveBuilder = new ProactiveResponseBuilder({
         store, codeHealth: codeHealthAnalyzer, enrichmentCoordinator,
         impactAnalyzer, prefetchEngine,
@@ -454,12 +437,13 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'enrich_files',
-                description: 'Enrich files with AI-generated semantic tags and intent cards (Level3). Improves concept-level search. Requires MCP sampling support.',
+                description: 'Enrich files with AI-generated semantic tags and intent cards (Level3). Uses Claude CLI (free) or Anthropic API. Improves concept-level search quality.',
                 inputSchema: {
                     type: 'object' as const,
                     properties: {
                         file_paths: { type: 'array', items: { type: 'string' }, description: 'File paths to enrich (default: auto-select unenriched files)' },
-                        limit: { type: 'number', description: 'Max files to enrich (default: 10)' },
+                        limit: { type: 'number', description: 'Max files to enrich (default 10, max 100)' },
+                        backend: { type: 'string', enum: ['claude-cli', 'anthropic-sdk'], description: 'Force specific backend (default: auto-detect)' },
                     },
                 },
             },
@@ -540,10 +524,6 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 // Phase 20: Proactive intelligence
                 const intelligenceText = proactiveBuilder.format(resultFileIds);
 
-                // Fire-and-forget: async enrichment for unenriched result files
-                if (enrichmentCoordinator.canSample()) {
-                    enrichmentCoordinator.enrichIfNeeded(resultFileIds).catch(() => {});
-                }
 
                 return { content: [{ type: 'text', text: responseText + intelligenceText }] };
             }
@@ -553,10 +533,27 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const result = await autoIndex(store, repoPath);
                 reverseRefsBuilt = false;
                 codeHealthAnalyzed = false;
+
+                // Phase 22: Auto-enrich unenriched files after indexing
+                let enrichResult = null;
+                try {
+                    const hasBackend = await enrichmentCoordinator.hasAiBackend();
+                    if (hasBackend) {
+                        enrichResult = await enrichmentCoordinator.enrichBatch(10);
+                    }
+                } catch (e: any) {
+                    process.stderr.write(`[atlasmemory] Post-index enrichment error: ${e.message}\n`);
+                }
+
                 return {
                     content: [{
                         type: 'text',
-                        text: JSON.stringify({ ok: true, files: result.files, symbols: result.symbols }),
+                        text: JSON.stringify({
+                            ok: true,
+                            files: result.files,
+                            symbols: result.symbols,
+                            ...(enrichResult ? { enrichment: enrichResult } : {}),
+                        }),
                     }],
                 };
             }
@@ -1122,23 +1119,25 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
             case 'enrich_files': {
                 await ensureIndexed();
-                const limit = Number(args.limit || 10);
+                const limit = Math.min(Math.max(Number(args.limit) || 10, 1), 100);
+                const forcedBackend = args.backend ? String(args.backend) : undefined;
 
                 if (args.file_paths && Array.isArray(args.file_paths)) {
                     const fileIds = (args.file_paths as string[])
                         .map(p => store.getFileId(path.resolve(String(p))))
                         .filter(Boolean) as string[];
-                    if (enrichmentCoordinator.canSample()) {
+
+                    const backend = await enrichmentCoordinator.detectBackend();
+                    if (backend) {
                         await enrichmentCoordinator.enrichIfNeeded(fileIds);
                     } else {
                         for (const id of fileIds) enrichmentCoordinator.enrichDeterministic(id);
                     }
                     const coverage = enrichmentCoordinator.getEnrichmentCoverage();
-                    const mode = enrichmentCoordinator.canSample() ? 'sampling' : 'deterministic';
-                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, enriched: fileIds.length, mode, coverage }, null, 2) }] };
+                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, enriched: fileIds.length, mode: backend ? 'ai' : 'deterministic', backend: backend?.name || 'deterministic', coverage }, null, 2) }] };
                 }
 
-                const report = await enrichmentCoordinator.enrichBatch(limit);
+                const report = await enrichmentCoordinator.enrichBatch(limit, forcedBackend);
                 const coverage = enrichmentCoordinator.getEnrichmentCoverage();
                 return { content: [{ type: 'text', text: JSON.stringify({ ok: true, ...report, coverage }, null, 2) }] };
             }

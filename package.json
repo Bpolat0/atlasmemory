@@ -32,6 +32,7 @@
         "selftest:agent": "node scripts/agent-selftest.mjs"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.39.0",
         "@modelcontextprotocol/sdk": "^0.6.0",
         "better-sqlite3": "^9.0.0",
         "commander": "^11.0.0",

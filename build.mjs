@@ -52,6 +52,8 @@ const result = await esbuild.build({
         // MCP SDK
         '@modelcontextprotocol/sdk',
         '@modelcontextprotocol/sdk/*',
+        // AI SDK (optional, dynamic import)
+        '@anthropic-ai/sdk',
     ],
     sourcemap: true,
     minify: false,
