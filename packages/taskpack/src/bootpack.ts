@@ -309,6 +309,9 @@ export class BootPackBuilder {
             '4) Do not hallucinate; cite evidence IDs in every non-trivial claim',
             '5) For updates: build_context(mode="delta", since="last") to see what changed',
             '6) After making file changes: call log_decision(files, summary, why, type)',
+            '7) After significant work: call remember_project to record milestones, gaps, learnings',
+            '   - milestone: completed work | gap: known issue | learning: experience | priority: work order',
+            '   - Resolve gaps: resolve_project_memory(id=N) when fixed',
             ...(enrichableCount > 0 ? [
                 '',
                 `## Memory Enrichment Available`,

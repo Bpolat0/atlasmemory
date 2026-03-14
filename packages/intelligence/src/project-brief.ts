@@ -206,7 +206,7 @@ export class ProjectBriefBuilder {
         const lines: string[] = [];
 
         // Git commits
-        const commits = getRecentCommits(rootDir, 10);
+        const commits = this.getRecentCommitsCached(rootDir, 10);
         if (commits.length > 0) {
             lines.push('**Git:**');
             for (const commit of commits) {
@@ -296,6 +296,26 @@ export class ProjectBriefBuilder {
         parts.push(`Described: ${describedCards}/${files.length}`);
 
         return parts.join(' | ');
+    }
+
+    /** Cache git log in session_state with 5-minute TTL */
+    private getRecentCommitsCached(rootDir: string, count: number): string[] {
+        try {
+            const cached = this.store.getState('cached_recent_commits');
+            const cachedAt = this.store.getState('cached_recent_commits_at');
+
+            if (cached && cachedAt) {
+                const age = Date.now() - new Date(cachedAt).getTime();
+                if (age < 5 * 60 * 1000) return JSON.parse(cached);
+            }
+        } catch { /* cache miss, regenerate */ }
+
+        const commits = getRecentCommits(rootDir, count);
+        try {
+            this.store.setState('cached_recent_commits', JSON.stringify(commits));
+            this.store.setState('cached_recent_commits_at', new Date().toISOString());
+        } catch { /* best-effort cache write */ }
+        return commits;
     }
 
     private renderMarkdown(brief: ProjectBrief): string {

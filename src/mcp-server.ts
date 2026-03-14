@@ -47,6 +47,77 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         return 4000;
     }
 
+    // Phase 24: Dynamic handshake budget — scales with project size
+    function handshakeBudget(fileCount: number) {
+        const total = Math.min(Math.max(fileCount * 12, 800), 2500);
+        return {
+            perception: Math.round(total * 0.45),
+            memory:     Math.round(total * 0.40),
+            protocol:   Math.round(total * 0.15),
+        };
+    }
+
+    // Phase 24: Render project memory section for handshake
+    function renderProjectMemory(budget: number): string {
+        const memories = store.getProjectMemories({ status: 'active', limit: 50 });
+        if (memories.length === 0) return '';
+
+        const sections: string[] = ['## Project Memory'];
+
+        const context = memories.filter(m => m.memoryType === 'context');
+        const gaps = memories.filter(m => m.memoryType === 'gap');
+        const priorities = memories.filter(m => m.memoryType === 'priority');
+        const milestones = memories.filter(m => m.memoryType === 'milestone');
+        const learnings = memories.filter(m => m.memoryType === 'learning');
+
+        if (context.length > 0)
+            sections.push('**Active:** ' + context.map(c => c.content).join(' | '));
+        if (gaps.length > 0)
+            sections.push('**Gaps:**\n' + gaps.map(g => `- [GAP-${g.id}] ${g.content}`).join('\n'));
+        if (priorities.length > 0)
+            sections.push('**Priorities:** ' + priorities.map(p => p.content).join(' > '));
+        if (milestones.length > 0)
+            sections.push('**Milestones:** ' + milestones.slice(0, 5).map(m => m.content).join(' | '));
+        if (learnings.length > 0)
+            sections.push('**Learnings:**\n' + learnings.map(l => `- ${l.content}`).join('\n'));
+
+        let result = sections.join('\n\n');
+        const maxChars = Math.floor(budget / 1.15 * 3);
+        if (result.length > maxChars) {
+            result = result.slice(0, maxChars - 3) + '...';
+        }
+        return result;
+    }
+
+    // Phase 24: One-time migration from SESSION_HANDOFF.md to project_memory
+    function migrateSessionHandoff(): void {
+        const already = store.getState('organic_memory_migrated');
+        if (already) return;
+
+        const handoffPath = path.join(detectProjectRoot(process.cwd()), 'SESSION_HANDOFF.md');
+        if (!fs.existsSync(handoffPath)) {
+            store.setState('organic_memory_migrated', 'true');
+            return;
+        }
+
+        // Seed initial memories from known project state
+        store.addProjectMemory('milestone', 'Phase 23B: Living Project Brief + batch indexing', 'Auto-generated brief, handshake integration, batch indexing');
+        store.addProjectMemory('milestone', 'Phase 23A: Context Resilience', 'Staleness fix, rate limiting, decisions CLI');
+        store.addProjectMemory('milestone', 'Phase 22: AI Enrichment Engine', 'Dual-backend: CLI free + API paid');
+        store.addProjectMemory('milestone', 'Phase 21: Agent Change Memory', 'AI decisions persist across sessions');
+        store.addProjectMemory('gap', 'DB absolute Windows paths — repo move breaks DB', 'Blast radius too high for quick fix, needs dedicated phase');
+        store.addProjectMemory('gap', 'Eval snippet FAIL at budget 6000', 'Pre-existing edge case, 19/20 snippets pass');
+        store.addProjectMemory('learning', 'package.json description required for meaningful architecture brief', 'Without it, brief shows generic "Index module" text');
+        store.addProjectMemory('learning', 'deleteFile() must clean all related tables (reverse_refs, symbol_cards)', 'Missing cleanup caused orphaned rows');
+        store.addProjectMemory('priority', 'Relative paths > npm publish > VS Code Marketplace', 'Portability before distribution');
+
+        // Mark handoff as deprecated
+        const deprecation = '\n\n---\n> **DEPRECATED:** This file is no longer maintained. Project memory is now managed by AtlasMemory\'s Organic Memory system. Use `atlas memory` or the `get_project_memory` MCP tool.\n';
+        fs.appendFileSync(handoffPath, deprecation, 'utf-8');
+
+        store.setState('organic_memory_migrated', 'true');
+    }
+
     // Phase 19: Intelligence Layer
     const graphService = new GraphService(store);
     const impactAnalyzer = new ImpactAnalyzer(store);
@@ -363,12 +434,13 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'handshake',
-                description: 'Generate compact agent operating protocol with project brief.',
+                description: 'Initialize agent session — returns 3-layer context: Perception (project brief) + Long-Term Memory + Protocol. Auto-indexes on first use.',
                 inputSchema: {
                     type: 'object',
                     properties: {
-                        budget: { type: 'number', description: 'Token budget (default 1300)' },
-                        include_brief: { type: 'boolean', description: 'Include Living Project Brief (default true)' },
+                        session_id: { type: 'string', description: 'Current session ID for session change detection' },
+                        include_brief: { type: 'boolean', description: 'Include Living Project Brief (default: true)', default: true },
+                        include_memory: { type: 'boolean', description: 'Include project memories (default: true)', default: true },
                     },
                 },
             },
@@ -993,33 +1065,51 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 await ensureIndexed();
                 await ensureReverseRefs();
 
+                // One-time migration from SESSION_HANDOFF.md
+                try { migrateSessionHandoff(); } catch { /* non-critical */ }
+
+                // Session change detection
                 const lastSessionId = store.getState('last_active_session');
                 const currentSessionId = args.session_id ? String(args.session_id) : undefined;
                 if (lastSessionId && currentSessionId && lastSessionId !== currentSessionId) {
                     sessionLearner.learnFromSession(lastSessionId);
+                    store.archiveContextMemories();
                 }
                 if (currentSessionId) {
                     store.setState('last_active_session', currentSessionId);
                 }
 
-                const includeBrief = args.include_brief !== false;
+                // Dynamic budget based on project size
+                const fileCount = store.getFileCount() || 64;
+                const budgets = handshakeBudget(fileCount);
                 const sections: string[] = [];
 
-                // Living Project Brief (Phase 23B) — placed first for immediate context
+                // 1. PERCEPTION — always fresh (Living Project Brief)
+                const includeBrief = args.include_brief !== false;
                 if (includeBrief) {
                     await ensureCodeHealth();
                     const rootDir = detectProjectRoot(process.cwd());
-                    const { markdown } = projectBriefBuilder.buildBrief({ rootDir });
+                    const { markdown } = projectBriefBuilder.buildBrief({ rootDir, maxTokens: budgets.perception });
                     sections.push(markdown);
                 }
 
-                // Agent operating protocol
-                const result = bootPackBuilder.buildHandshake(Number(args.budget || 1300));
+                // 2. LONG-TERM MEMORY — persistent from DB
+                const includeMemory = args.include_memory !== false;
+                if (includeMemory) {
+                    const memorySection = renderProjectMemory(budgets.memory);
+                    if (memorySection) sections.push(memorySection);
+                }
+
+                // 3. PROTOCOL — static agent operating rules
+                const result = bootPackBuilder.buildHandshake(budgets.protocol);
                 sections.push(result.text);
 
                 // Enrichment invitation (if applicable)
                 const enrichmentInvite = enrichmentCoordinator.getEnrichmentInvitation();
                 if (enrichmentInvite) sections.push(enrichmentInvite);
+
+                // Lifecycle: best-effort stale memory cleanup
+                try { store.archiveStaleMemories(); } catch { /* non-critical */ }
 
                 return { content: [{ type: 'text', text: sections.join('\n\n') }] };
             }

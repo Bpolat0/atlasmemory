@@ -260,30 +260,65 @@ export function registerCliCommands(program: Command): void {
         });
 
     program.command('handshake')
-        .description('Generate operating instructions for agents (with project brief)')
-        .option('--budget <number>', 'Token budget', '1300')
+        .description('Generate 3-layer agent context: Perception + Memory + Protocol')
         .option('--no-brief', 'Omit project brief')
+        .option('--no-memory', 'Omit project memories')
         .action(async (options) => {
             const store = getStore();
             const rootDir = detectProjectRoot(process.cwd());
-            const builder = new BootPackBuilder(store);
+
+            // Dynamic budget based on project size
+            const fileCount = store.getFileCount() || 64;
+            const total = Math.min(Math.max(fileCount * 12, 800), 2500);
+            const budgets = {
+                perception: Math.round(total * 0.45),
+                memory: Math.round(total * 0.40),
+                protocol: Math.round(total * 0.15),
+            };
+
             const sections: string[] = [];
 
-            // Include project brief by default
+            // 1. PERCEPTION
             if (options.brief !== false) {
                 const { CodeHealthAnalyzer, SessionLearner, EnrichmentCoordinator, ProjectBriefBuilder } = await import('@atlasmemory/intelligence');
                 const codeHealth = new CodeHealthAnalyzer(store, rootDir);
                 const sessionLearner = new SessionLearner(store);
                 const enrichmentCoordinator = new EnrichmentCoordinator(store);
                 const briefBuilder = new ProjectBriefBuilder(store, codeHealth, sessionLearner, enrichmentCoordinator);
-                try { await codeHealth.analyzeRepo(); } catch { /* skip */ }
-                const { markdown } = briefBuilder.buildBrief({ rootDir });
+                try { await codeHealth.analyzeRepo(); } catch { }
+                const { markdown } = briefBuilder.buildBrief({ rootDir, maxTokens: budgets.perception });
                 sections.push(markdown);
             }
 
-            const result = builder.buildHandshake(safeParseInt(options.budget, 1300));
-            sections.push(result.text);
-            console.log(sections.join('\n\n'));
+            // 2. LONG-TERM MEMORY
+            if (options.memory !== false) {
+                const memories = store.getProjectMemories({ status: 'active', limit: 50 });
+                if (memories.length > 0) {
+                    const memLines: string[] = ['## Project Memory'];
+                    const context = memories.filter((m: any) => m.memoryType === 'context');
+                    const gaps = memories.filter((m: any) => m.memoryType === 'gap');
+                    const priorities = memories.filter((m: any) => m.memoryType === 'priority');
+                    const milestones = memories.filter((m: any) => m.memoryType === 'milestone');
+                    const learnings = memories.filter((m: any) => m.memoryType === 'learning');
+                    if (context.length > 0) memLines.push('**Active:** ' + context.map((c: any) => c.content).join(' | '));
+                    if (gaps.length > 0) memLines.push('**Gaps:**\n' + gaps.map((g: any) => `- [GAP-${g.id}] ${g.content}`).join('\n'));
+                    if (priorities.length > 0) memLines.push('**Priorities:** ' + priorities.map((p: any) => p.content).join(' > '));
+                    if (milestones.length > 0) memLines.push('**Milestones:** ' + milestones.slice(0, 5).map((m: any) => m.content).join(' | '));
+                    if (learnings.length > 0) memLines.push('**Learnings:**\n' + learnings.map((l: any) => `- ${l.content}`).join('\n'));
+                    let memText = memLines.join('\n\n');
+                    const maxChars = Math.floor(budgets.memory / 1.15 * 3);
+                    if (memText.length > maxChars) memText = memText.slice(0, maxChars - 3) + '...';
+                    sections.push(memText);
+                }
+            }
+
+            // 3. PROTOCOL
+            const builder = new BootPackBuilder(store);
+            const protocol = builder.buildHandshake(budgets.protocol);
+            sections.push(protocol.text);
+
+            console.log('\n' + sections.join('\n\n'));
+            console.log(`\n--- Budget: ${total} tokens (perception: ${budgets.perception}, memory: ${budgets.memory}, protocol: ${budgets.protocol}) ---\n`);
         });
 
     program.command('refresh')
@@ -734,5 +769,87 @@ export function registerCliCommands(program: Command): void {
                 console.log('\n' + markdown);
                 console.log(`\n--- ${tokens} tokens ---\n`);
             }
+        });
+
+    const memoryCmd = program.command('memory')
+        .description('View and manage project memories (persistent across sessions)')
+        .option('--type <type>', 'Filter by type: milestone, gap, learning, priority, context')
+        .option('--all', 'Include resolved and archived memories')
+        .option('--json', 'Machine-readable JSON output')
+        .action(async (options) => {
+            const store = getStore();
+            const memories = store.getProjectMemories({
+                type: options.type || undefined,
+                status: options.all ? 'all' : 'active',
+                limit: 50,
+            });
+
+            if (options.json) {
+                console.log(JSON.stringify(memories, null, 2));
+                return;
+            }
+
+            console.log('\nAtlasMemory \u2014 Project Memory\n');
+
+            if (memories.length === 0) {
+                console.log('  No memories found.');
+                console.log('  AI agents store memories via the remember_project MCP tool.');
+                console.log('  Or use: atlas memory add <type> "<content>"\n');
+                return;
+            }
+
+            // Group by type
+            const grouped = new Map<string, typeof memories>();
+            for (const m of memories) {
+                if (!grouped.has(m.memoryType)) grouped.set(m.memoryType, []);
+                grouped.get(m.memoryType)!.push(m);
+            }
+
+            const typeOrder = ['context', 'gap', 'priority', 'milestone', 'learning'];
+            const typeIcons: Record<string, string> = {
+                milestone: '[MILE]', gap: '[GAP]', learning: '[LEARN]',
+                priority: '[PRIO]', context: '[CTX]',
+            };
+
+            for (const type of typeOrder) {
+                const items = grouped.get(type);
+                if (!items) continue;
+                console.log(`  ${typeIcons[type] || type.toUpperCase()}:`);
+                for (const m of items) {
+                    const statusTag = m.status !== 'active' ? ` (${m.status})` : '';
+                    console.log(`    #${m.id}${statusTag} ${m.content}`);
+                    if (m.why) console.log(`       Why: ${m.why}`);
+                }
+                console.log('');
+            }
+
+            console.log(`  Total: ${memories.length} memory/memories\n`);
+        });
+
+    memoryCmd.command('add <type> <content>')
+        .description('Add a project memory (type: milestone, gap, learning, priority, context)')
+        .option('--why <reason>', 'Why this matters')
+        .action(async (type: string, content: string, options: any) => {
+            const validTypes = ['milestone', 'gap', 'learning', 'priority', 'context'];
+            if (!validTypes.includes(type)) {
+                console.error(`Invalid type: ${type}. Must be one of: ${validTypes.join(', ')}`);
+                process.exit(1);
+            }
+            const store = getStore();
+            const id = store.addProjectMemory(type, content, options.why);
+            console.log(`Added ${type.toUpperCase()}-${id}: "${content}"`);
+        });
+
+    memoryCmd.command('resolve <id>')
+        .description('Mark a memory as resolved (e.g., a gap that was fixed)')
+        .action(async (id: string) => {
+            const numId = parseInt(id, 10);
+            if (isNaN(numId)) {
+                console.error('ID must be a number');
+                process.exit(1);
+            }
+            const store = getStore();
+            store.resolveProjectMemory(numId);
+            console.log(`Resolved memory #${numId}`);
         });
 }
