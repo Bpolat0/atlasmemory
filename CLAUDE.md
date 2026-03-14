@@ -54,6 +54,9 @@ npm run eval:synth500    # Medium eval
 npm run eval:real        # Real-repo smoke (CI mode)
 npm run eval:real:heal   # Real-repo with auto-heal (local dev)
 npm run selftest:agent   # Agent self-test validation
+atlas enrich             # AI enrichment (CLI free / API paid)
+atlas enrich --dry-run   # Show what would be enriched
+atlas enrich --all       # Enrich all unenriched files
 ```
 
 ## Tech Stack
@@ -63,7 +66,8 @@ npm run selftest:agent   # Agent self-test validation
 - **Parser:** Tree-sitter (TS, JS, Python, Go, Rust, Java, C#, C, C++, Ruby, PHP — 11 languages)
 - **MCP:** @modelcontextprotocol/sdk
 - **CLI:** Commander.js
-- **Build:** tsc + esbuild → dist/atlasmemory.js (~278KB bundle)
+- **Build:** tsc + esbuild → dist/atlasmemory.js (~331KB bundle)
+- **AI SDK:** @anthropic-ai/sdk (optional, for paid API enrichment)
 
 ## Conventions
 - ESM modules throughout (`"type": "module"` in all package.json)
@@ -117,5 +121,23 @@ Card mgmt: `get_allowed_evidence`, `validate_file_card`, `upsert_file_card`, `re
 - **Targets:** Zero-result rate <2%, Recall@5 >0.9, p95 latency <50ms
 - Reports written to `apps/eval/reports/<timestamp>/`
 
+## Session Continuity (IMPORTANT)
+- **`SESSION_HANDOFF.md`** — AI agent continuity document. Read this at the START of every session.
+- Contains: current project state, what was done, known gaps, technical architecture, session history
+- **RULE:** After completing any significant change (feature, fix, refactor), update `SESSION_HANDOFF.md` with:
+  1. What was done (problem + solution)
+  2. Which files were created/modified
+  3. Test results
+  4. Any new known gaps
+  5. Add entry to Session History table
+- This ensures no context is lost between sessions.
+
 ## Current Status
-Phases 1-21 complete. Phase 21: Agent Change Memory — AI agents record decisions (why they changed files) that survive session boundaries. Future agents see decisions inline in file cards and via FTS search. 2 new MCP tools (`log_decision`, `get_file_history`), 3 new DB tables (`agent_changes`, `agent_change_files`, `fts_agent_changes`), handshake rule #6, delta mode "Recent AI Decisions" section. See `project_handoff.md` for full history.
+Phases 1-22 complete. Phase 22: AI Enrichment Engine — dual-backend (CLI free + API paid) replaces dead MCP Sampling. `atlas enrich` CLI command. Post-index auto-enrichment. See `SESSION_HANDOFF.md` for details.
+
+## Key Files (Phase 22 additions)
+- **Enrichment Backend:** `packages/intelligence/src/enrichment-backend.ts`
+- **Claude CLI Backend:** `packages/intelligence/src/backends/claude-cli.ts`
+- **Anthropic SDK Backend:** `packages/intelligence/src/backends/anthropic-sdk.ts`
+- **Enrichment Prompt:** `packages/intelligence/src/enrichment-prompt.ts`
+- **Session Handoff:** `SESSION_HANDOFF.md`
