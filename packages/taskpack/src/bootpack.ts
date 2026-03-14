@@ -202,34 +202,37 @@ export class BootPackBuilder {
         const changedLines = changedClaims.map(claim => `- ${renderClaim(claim)}`).join('\n');
         push(`## Changed Files\n${changedLines || '- none'}\n`);
 
-        // Phase 21: Recent AI Decisions — placed RIGHT AFTER Changed Files
-        // because for an AI agent, "why did this change" is more valuable than coverage stats
+        // Phase 21: Recent AI Decisions — only for files that actually changed (contextual, not exhaustive)
         try {
-            const recentChanges = this.store.getRecentChanges(since, 20);
+            const recentChanges = this.store.getRecentChanges(since, 50);
             if (recentChanges.length > 0) {
-                const grouped = new Map<string, { id: string; summary: string; why: string; changeType: string }[]>();
-                for (const change of recentChanges) {
-                    for (const fp of change.filePaths) {
-                        if (!grouped.has(fp)) grouped.set(fp, []);
-                        const list = grouped.get(fp)!;
-                        // Dedup: same change touching multiple files shouldn't repeat per-file
-                        if (!list.some(c => c.id === change.id)) {
-                            list.push(change);
-                        }
-                    }
-                }
-                const decisionLines: string[] = [];
-                for (const [fp, changes] of grouped) {
-                    decisionLines.push(`### ${fp}`);
-                    for (const c of changes) {
-                        decisionLines.push(`- ${c.summary} [${c.changeType}]`);
+                // Filter: only show decisions that touch at least one changed file
+                const changedFileSet = new Set(changedFiles.map(f => f.replace(/\\/g, '/')));
+                const relevant = recentChanges.filter(change =>
+                    change.filePaths.some(fp => changedFileSet.has(fp.replace(/\\/g, '/')))
+                );
+                // Dedup by summary (same decision logged multiple times = show once)
+                const seen = new Set<string>();
+                const deduped = relevant.filter(c => {
+                    const key = c.summary.slice(0, 80);
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+                if (deduped.length > 0) {
+                    const decisionLines: string[] = [];
+                    // Compact format: one line per decision (not grouped by file)
+                    for (const c of deduped.slice(0, 10)) {
+                        const files = c.filePaths.slice(0, 3).join(', ');
+                        const more = c.filePaths.length > 3 ? ` +${c.filePaths.length - 3}` : '';
+                        decisionLines.push(`- [${c.changeType}] ${c.summary}`);
                         decisionLines.push(`  Why: ${c.why}`);
+                        decisionLines.push(`  Files: ${files}${more}`);
                     }
+                    push(`## Recent AI Decisions\n${decisionLines.join('\n')}\n`);
                 }
-                push(`## Recent AI Decisions\n${decisionLines.join('\n')}\n`);
             }
         } catch (e: any) {
-            // Expected: no agent_changes table yet. Unexpected errors: log for debugging.
             if (e?.message && !e.message.includes('no such table')) {
                 process.stderr.write(`[atlasmemory] agent_changes error: ${e.message}\n`);
             }

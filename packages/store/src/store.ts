@@ -1086,6 +1086,13 @@ export class Store {
         }
     }
 
+    deleteAgentChange(id: string): boolean {
+        this.db.prepare('DELETE FROM fts_agent_changes WHERE change_id = ?').run(id);
+        this.db.prepare('DELETE FROM agent_change_files WHERE change_id = ?').run(id);
+        const result = this.db.prepare('DELETE FROM agent_changes WHERE id = ?').run(id);
+        return result.changes > 0;
+    }
+
     /** Group flat JOIN rows into AgentChange objects (eliminates N+1 queries) */
     private groupChangeRows(rows: any[], limit: number): AgentChange[] {
         const map = new Map<string, AgentChange>();
