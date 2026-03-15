@@ -74,8 +74,8 @@ export class TaskPackBuilder {
         }
 
         // --- P2: Relevant Files (Cards) ---
-        // Reserve 40% of budget for snippets/flows — file cards capped at 60%
-        const FILE_CARDS_BUDGET_CAP = Math.floor(tokenBudget * 0.60);
+        // File cards capped at 45% to guarantee snippet budget (was 60% — caused starvation)
+        const FILE_CARDS_BUDGET_CAP = Math.floor(tokenBudget * 0.45);
         const fileCards: FileCard[] = [];
         const fileSectionParts: string[] = ['## Relevant Files\n'];
 
@@ -96,6 +96,13 @@ export class TaskPackBuilder {
         }
         sections.push(fileSectionParts.join('\n'));
 
+        // --- Snippet Budget Reservation ---
+        // Guarantee at least 15% of total budget for snippets (prevents starvation at low budgets)
+        const SNIPPET_MIN_BUDGET = Math.floor(tokenBudget * 0.15);
+        const remainingAfterCards = tokenBudget - usedTokens;
+        const snippetBudget = Math.max(SNIPPET_MIN_BUDGET, Math.floor(remainingAfterCards * 0.30));
+        const snippetCeiling = usedTokens + snippetBudget;
+
         // --- P2.5: Evidence Snippets (Real Content — highest value, goes early) ---
         // Moved before Flow/Invariant/Symbol sections so actual code always gets budget.
         const snippetSectionParts: string[] = ['\n## Evidence Snippets\n'];
@@ -114,7 +121,7 @@ export class TaskPackBuilder {
                     const headerTokens = this.estimateTokens(fileHeader + fileFooter);
 
                     // Check if we have any budget for this file at all
-                    if (usedTokens + headerTokens >= tokenBudget) continue;
+                    if (usedTokens + headerTokens >= snippetCeiling) continue;
 
                     if (card.level1?.evidenceAnchorIds && card.level1.evidenceAnchorIds.length > 0) {
                         // Use Evidence Anchors — emit each snippet individually for better budget use
@@ -176,7 +183,7 @@ export class TaskPackBuilder {
 
                             const snippet = `// Lines ${start}-${actualEnd}\n${text}`;
                             const snippetTokens = this.estimateTokens(snippet);
-                            if (usedTokens + (fileHasSnippets ? 0 : headerTokens) + snippetTokens >= tokenBudget) break;
+                            if (usedTokens + (fileHasSnippets ? 0 : headerTokens) + snippetTokens >= snippetCeiling) break;
 
                             if (!fileHasSnippets) {
                                 snippetSectionParts.push(fileHeader);
@@ -206,7 +213,7 @@ export class TaskPackBuilder {
                     if (snippets.length > 0) {
                         const fallbackBlock = `${fileHeader}${snippets[0]}\n${fileFooter}`;
                         const tokens = this.estimateTokens(fallbackBlock);
-                        if (usedTokens + tokens < tokenBudget) {
+                        if (usedTokens + tokens < snippetCeiling) {
                             usedTokens += tokens;
                             snippetSectionParts.push(fallbackBlock);
                         }

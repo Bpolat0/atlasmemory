@@ -85,3 +85,25 @@ describe('TaskPack Builder Budget', () => {
         expect(large.length).toBeGreaterThanOrEqual(small.length);
     });
 });
+
+describe('Snippet Budget Guarantee', () => {
+    let store: Store;
+    let builder: TaskPackBuilder;
+    let fileIds: string[];
+
+    beforeEach(() => {
+        store = new Store(':memory:');
+        fileIds = seedStore(store);
+        builder = new TaskPackBuilder(store);
+    });
+
+    it('should include Evidence Snippets section at budget=6000', () => {
+        const pack = builder.build('test module functionality', fileIds.slice(0, 3), 6000);
+        expect(pack).toContain('Evidence Snippets');
+    });
+
+    it('should include Evidence Snippets section at budget=4000', () => {
+        const pack = builder.build('test module functionality', fileIds.slice(0, 2), 4000);
+        expect(pack).toContain('Evidence Snippets');
+    });
+});
