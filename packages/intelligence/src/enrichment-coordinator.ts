@@ -1,12 +1,13 @@
 // packages/intelligence/src/enrichment-coordinator.ts
 import type { Store } from '@atlasmemory/store';
 import type { Level3FileCard } from '@atlasmemory/core';
-import type { EnrichmentBackend } from './enrichment-backend.js';
+import type { EnrichmentBackend, EnrichmentInput, EnrichmentResult } from './enrichment-backend.js';
 import { ClaudeCliBackend } from './backends/claude-cli.js';
 import { AnthropicSdkBackend } from './backends/anthropic-sdk.js';
 import { buildEnrichmentPrompt } from './enrichment-prompt.js';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
 const MAX_SNIPPET_LINES = 120;
 const MAX_RESPONSE_TOKENS = 300;
@@ -101,30 +102,63 @@ export class EnrichmentCoordinator {
             backend = await this.detectBackend();
         }
 
-        // Inter-call delay: prevent rate limiting
-        const delayMs = backend?.name === 'anthropic-sdk' ? 1000 : backend?.name === 'claude-cli' ? 500 : 0;
-
         let enriched = 0;
         let failed = 0;
 
-        for (let i = 0; i < unenriched.length; i++) {
-            const file = unenriched[i];
-            try {
-                if (backend) {
-                    await this.enrichFileWithBackend(file.id, backend);
-                } else {
-                    this.enrichDeterministic(file.id);
-                }
-                enriched++;
-                onProgress?.(enriched, unenriched.length, file.path);
-            } catch (e) {
-                process.stderr.write(`[atlasmemory] Enrichment failed for ${file.path}: ${e}\n`);
-                failed++;
-            }
+        if (backend && backend.enrichBatch) {
+            // Batch mode: chunk files into groups of 5
+            const BATCH_SIZE = 5;
+            for (let i = 0; i < unenriched.length; i += BATCH_SIZE) {
+                const chunk = unenriched.slice(i, i + BATCH_SIZE);
+                const inputs: EnrichmentInput[] = chunk.map(f => this.prepareEnrichmentInput(f.id));
 
-            // Inter-call delay (skip after last file)
-            if (delayMs > 0 && i < unenriched.length - 1) {
-                await sleep(delayMs);
+                try {
+                    const results = await backend.enrichBatch(inputs, MAX_RESPONSE_TOKENS * BATCH_SIZE);
+                    for (let j = 0; j < results.length; j++) {
+                        try {
+                            this.applyEnrichmentResult(chunk[j].id, results[j], backend.name);
+                            enriched++;
+                            onProgress?.(enriched, unenriched.length, chunk[j].path);
+                        } catch (e) {
+                            process.stderr.write(`[atlasmemory] Apply failed for ${chunk[j].path}: ${e}\n`);
+                            failed++;
+                        }
+                    }
+                } catch (e) {
+                    // Batch failed — fallback to individual enrichment
+                    process.stderr.write(`[atlasmemory] Batch enrichment failed, falling back to individual: ${e}\n`);
+                    for (const file of chunk) {
+                        try {
+                            await this.enrichFileWithBackend(file.id, backend);
+                            enriched++;
+                            onProgress?.(enriched, unenriched.length, file.path);
+                        } catch (e2) {
+                            process.stderr.write(`[atlasmemory] Individual enrichment failed for ${file.path}: ${e2}\n`);
+                            failed++;
+                        }
+                    }
+                }
+            }
+        } else {
+            // No batch support or no backend — per-file processing
+            const delayMs = backend?.name === 'anthropic-sdk' ? 1000 : backend?.name === 'claude-cli' ? 500 : 0;
+            for (let i = 0; i < unenriched.length; i++) {
+                const file = unenriched[i];
+                try {
+                    if (backend) {
+                        await this.enrichFileWithBackend(file.id, backend);
+                    } else {
+                        this.enrichDeterministic(file.id);
+                    }
+                    enriched++;
+                    onProgress?.(enriched, unenriched.length, file.path);
+                } catch (e) {
+                    process.stderr.write(`[atlasmemory] Enrichment failed for ${file.path}: ${e}\n`);
+                    failed++;
+                }
+                if (delayMs > 0 && i < unenriched.length - 1) {
+                    await sleep(delayMs);
+                }
             }
         }
 
@@ -135,6 +169,56 @@ export class EnrichmentCoordinator {
             mode: backend ? 'ai' : 'deterministic',
             backend: backend?.name || 'deterministic',
         };
+    }
+
+    /** Prepare enrichment input for a file */
+    private prepareEnrichmentInput(fileId: string): EnrichmentInput {
+        const file = this.store.getFileById(fileId);
+        const symbols = this.store.getSymbolsForFile(fileId);
+        const imports = this.store.getImportsForFile(fileId);
+
+        let codeSnippet = `(${symbols.length} symbols)`;
+        try {
+            const repoRoot = this.store.getRepoRoot();
+            const absPath = path.resolve(repoRoot, file?.path || '');
+            if (file && fs.existsSync(absPath)) {
+                const content = fs.readFileSync(absPath, 'utf-8');
+                codeSnippet = content.split('\n').slice(0, MAX_SNIPPET_LINES).join('\n');
+            }
+        } catch { /* fallback */ }
+
+        return {
+            filePath: file?.path || fileId,
+            symbolSignatures: symbols.map(s => `${s.kind} ${s.name}: ${s.signature}`),
+            importPaths: imports.map(i => i.importedModule),
+            codeSnippet,
+        };
+    }
+
+    /** Apply enrichment result to a file's card */
+    private applyEnrichmentResult(fileId: string, result: EnrichmentResult, backendName: string): void {
+        const level3: Level3FileCard = {
+            intent: result.intent,
+            solves: result.solves,
+            tags: result.tags,
+            breaks_if_changed: result.breaks_if_changed,
+            security_notes: result.security_notes,
+            complexity: result.complexity,
+        };
+
+        const existingCard = this.store.getFileCard(fileId);
+        if (existingCard) {
+            existingCard.level3 = level3;
+            if (existingCard.level1?.notes === 'Awaiting AI enrichment') {
+                existingCard.level1.notes = `Enriched by ${backendName}`;
+            }
+            existingCard.cardHash = crypto.createHash('sha256')
+                .update(JSON.stringify(existingCard.level0) + JSON.stringify(existingCard.level1 || {}) + JSON.stringify(existingCard.level2 || {}) + JSON.stringify(level3))
+                .digest('hex');
+            this.store.addFileCard(existingCard);
+        }
+
+        this.store.upsertSemanticTags(fileId, level3.tags, level3.intent);
     }
 
     /** AI-powered enrichment using a backend */
@@ -220,8 +304,7 @@ export class EnrichmentCoordinator {
             if (existingCard.level1?.notes === 'Awaiting AI enrichment') {
                 existingCard.level1.notes = `Enriched by ${backend.name}`;
             }
-            const { createHash } = await import('crypto');
-            existingCard.cardHash = createHash('sha256')
+            existingCard.cardHash = crypto.createHash('sha256')
                 .update(JSON.stringify(existingCard.level0) + JSON.stringify(existingCard.level1 || {}) + JSON.stringify(existingCard.level2 || {}) + JSON.stringify(level3))
                 .digest('hex');
             this.store.addFileCard(existingCard);

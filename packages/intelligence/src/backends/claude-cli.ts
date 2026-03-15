@@ -1,6 +1,7 @@
 // packages/intelligence/src/backends/claude-cli.ts
 import { execSync, spawn } from 'child_process';
-import type { EnrichmentBackend } from '../enrichment-backend.js';
+import type { EnrichmentBackend, EnrichmentInput, EnrichmentResult } from '../enrichment-backend.js';
+import { buildBatchEnrichmentPrompt } from '../enrichment-prompt.js';
 
 export class ClaudeCliBackend implements EnrichmentBackend {
     name = 'claude-cli';
@@ -49,5 +50,23 @@ export class ClaudeCliBackend implements EnrichmentBackend {
             child.stdin.write(prompt);
             child.stdin.end();
         });
+    }
+
+    async enrichBatch(files: EnrichmentInput[], maxTokens: number): Promise<EnrichmentResult[]> {
+        const prompt = buildBatchEnrichmentPrompt(files);
+        const response = await this.enrich(prompt, maxTokens);
+        const cleaned = response.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '');
+        const parsed = JSON.parse(cleaned);
+        if (!Array.isArray(parsed) || parsed.length !== files.length) {
+            throw new Error(`Expected ${files.length} results, got ${Array.isArray(parsed) ? parsed.length : 'non-array'}`);
+        }
+        return parsed.map((item: any) => ({
+            intent: String(item.intent || ''),
+            solves: String(item.solves || ''),
+            tags: (item.tags || []).map(String).slice(0, 15),
+            breaks_if_changed: (item.breaks_if_changed || []).map(String),
+            security_notes: item.security_notes ? String(item.security_notes) : null,
+            complexity: ['low', 'medium', 'high'].includes(item.complexity) ? item.complexity : 'medium',
+        }));
     }
 }

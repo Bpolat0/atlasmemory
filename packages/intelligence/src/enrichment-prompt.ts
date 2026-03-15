@@ -45,3 +45,36 @@ Example output for a database connection pool:
   "complexity": "medium"
 }`;
 }
+
+/**
+ * Batch prompt for enriching multiple files in a single LLM call.
+ * Reduces subprocess spawns from N to ceil(N/5).
+ */
+export function buildBatchEnrichmentPrompt(files: Array<{
+    filePath: string;
+    symbolSignatures: string[];
+    importPaths: string[];
+    codeSnippet: string;
+}>): string {
+    const fileBlocks = files.map((f, i) => {
+        const symbols = f.symbolSignatures.slice(0, 12).join('\n  ') || 'none';
+        const imports = f.importPaths.slice(0, 10).join(', ') || 'none';
+        return `[FILE ${i + 1}: ${f.filePath}]
+Exports:
+  ${symbols}
+Imports: ${imports}
+Code (first 120 lines):
+\`\`\`
+${f.codeSnippet}
+\`\`\``;
+    }).join('\n\n');
+
+    return `Analyze these ${files.length} source files and return a JSON array of intent cards.
+
+${fileBlocks}
+
+Return ONLY a valid JSON array (no markdown, no explanation). One object per file, in same order:
+[
+  { "intent": "...", "solves": "...", "tags": [...], "breaks_if_changed": [...], "security_notes": "... or null", "complexity": "low|medium|high" }
+]`;
+}

@@ -1,5 +1,6 @@
 // packages/intelligence/src/backends/anthropic-sdk.ts
-import type { EnrichmentBackend } from '../enrichment-backend.js';
+import type { EnrichmentBackend, EnrichmentInput, EnrichmentResult } from '../enrichment-backend.js';
+import { buildBatchEnrichmentPrompt } from '../enrichment-prompt.js';
 
 const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 1000;
@@ -52,5 +53,23 @@ export class AnthropicSdkBackend implements EnrichmentBackend {
             }
         }
         throw lastError;
+    }
+
+    async enrichBatch(files: EnrichmentInput[], maxTokens: number): Promise<EnrichmentResult[]> {
+        const prompt = buildBatchEnrichmentPrompt(files);
+        const response = await this.enrich(prompt, maxTokens);
+        const cleaned = response.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '');
+        const parsed = JSON.parse(cleaned);
+        if (!Array.isArray(parsed) || parsed.length !== files.length) {
+            throw new Error(`Expected ${files.length} results, got ${Array.isArray(parsed) ? parsed.length : 'non-array'}`);
+        }
+        return parsed.map((item: any) => ({
+            intent: String(item.intent || ''),
+            solves: String(item.solves || ''),
+            tags: (item.tags || []).map(String).slice(0, 15),
+            breaks_if_changed: (item.breaks_if_changed || []).map(String),
+            security_notes: item.security_notes ? String(item.security_notes) : null,
+            complexity: ['low', 'medium', 'high'].includes(item.complexity) ? item.complexity : 'medium',
+        }));
     }
 }
