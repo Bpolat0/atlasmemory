@@ -172,9 +172,8 @@ export class ProjectBriefBuilder {
             return desc.length > 80 ? desc.slice(0, 77) + '...' : desc;
         }
 
-        // 2. Check folder card
-        const absDir = path.join(rootDir, dir);
-        const folderCard = this.store.getFolderCard(absDir);
+        // 2. Check folder card (use relative path — DB stores relative since v9)
+        const folderCard = this.store.getFolderCard(dir);
         if (folderCard?.level0?.purpose) {
             const purpose = folderCard.level0.purpose;
             return purpose.length > 80 ? purpose.slice(0, 77) + '...' : purpose;
