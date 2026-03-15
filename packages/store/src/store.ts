@@ -31,7 +31,7 @@ export class Store {
     }
 
     // Current schema version — increment when schema changes
-    private static readonly SCHEMA_VERSION = 8;
+    private static readonly SCHEMA_VERSION = 9;
 
     private init() {
         const currentVersion = (this.db.pragma('user_version', { simple: true }) as number) || 0;
@@ -91,6 +91,97 @@ export class Store {
             }
             // v7→v8: project_memory table handled by SCHEMA (CREATE IF NOT EXISTS)
             // No data migration needed — table starts empty
+
+            // v8→v9: Convert absolute paths to relative paths
+            if (currentVersion < 9) {
+                const repoRoot = process.cwd().replace(/\\/g, '/');
+                // Normalize Windows drive letter
+                const normalizedRoot = (process.platform === 'win32' && /^[a-z]:/.test(repoRoot))
+                    ? repoRoot[0].toUpperCase() + repoRoot.slice(1)
+                    : repoRoot;
+
+                // 1. Convert files.path from absolute to relative
+                const allFiles = this.db.prepare('SELECT id, path FROM files').all() as { id: string; path: string }[];
+                const updateFile = this.db.prepare('UPDATE files SET path = ? WHERE id = ?');
+                const relPathMap = new Map<string, string>();
+                for (const file of allFiles) {
+                    const norm = file.path.replace(/\\/g, '/');
+                    let relPath: string;
+                    const rootLower = normalizedRoot.toLowerCase();
+                    const pathLower = norm.toLowerCase();
+                    if (pathLower.startsWith(rootLower + '/')) {
+                        relPath = norm.slice(normalizedRoot.length + 1);
+                    } else if (pathLower.startsWith(rootLower)) {
+                        relPath = norm.slice(normalizedRoot.length);
+                        if (relPath.startsWith('/')) relPath = relPath.slice(1);
+                    } else {
+                        relPath = norm;
+                    }
+                    relPathMap.set(file.id, relPath);
+                    if (relPath !== file.path) {
+                        updateFile.run(relPath, file.id);
+                    }
+                }
+
+                // 2. Rebuild FTS (DELETE + re-INSERT, FTS5 doesn't support standard UPDATE)
+                const allFts = this.db.prepare('SELECT file_id, content FROM fts_files').all() as { file_id: string; content: string }[];
+                this.db.prepare('DELETE FROM fts_files').run();
+                const insertFts = this.db.prepare('INSERT INTO fts_files (path, content, file_id) VALUES (?, ?, ?)');
+                for (const fts of allFts) {
+                    const relPath = relPathMap.get(fts.file_id);
+                    if (relPath) {
+                        insertFts.run(relPath, fts.content, fts.file_id);
+                    }
+                }
+
+                // 3. Convert folder_cards.folder_path
+                const allFolders = this.db.prepare('SELECT folder_path FROM folder_cards').all() as { folder_path: string }[];
+                const updateFolder = this.db.prepare('UPDATE folder_cards SET folder_path = ? WHERE folder_path = ?');
+                for (const folder of allFolders) {
+                    const norm = folder.folder_path.replace(/\\/g, '/');
+                    const rootLower = normalizedRoot.toLowerCase();
+                    const pathLower = norm.toLowerCase();
+                    if (pathLower.startsWith(rootLower + '/')) {
+                        updateFolder.run(norm.slice(normalizedRoot.length + 1), folder.folder_path);
+                    } else if (pathLower.startsWith(rootLower)) {
+                        updateFolder.run(norm.slice(normalizedRoot.length).replace(/^\//, ''), folder.folder_path);
+                    }
+                }
+
+                // 4. Normalize agent_change_files.file_path
+                const allAcf = this.db.prepare('SELECT rowid, file_path FROM agent_change_files').all() as { rowid: number; file_path: string }[];
+                const updateAcf = this.db.prepare('UPDATE agent_change_files SET file_path = ? WHERE rowid = ?');
+                for (const acf of allAcf) {
+                    const norm = acf.file_path.replace(/\\/g, '/');
+                    const rootLower = normalizedRoot.toLowerCase();
+                    const pathLower = norm.toLowerCase();
+                    let relPath: string;
+                    if (pathLower.startsWith(rootLower + '/')) {
+                        relPath = norm.slice(normalizedRoot.length + 1);
+                    } else {
+                        relPath = norm;
+                    }
+                    if (relPath !== acf.file_path) {
+                        updateAcf.run(relPath, acf.rowid);
+                    }
+                }
+
+                // 5. Truncate session_patterns (contains embedded absolute filePaths in JSON)
+                this.db.prepare('DELETE FROM session_patterns').run();
+
+                // 6. Truncate conversation_events (contains embedded absolute filePath in JSON)
+                this.db.prepare('DELETE FROM conversation_events').run();
+
+                // 7. Delete context_snapshots (repo_id hash will change)
+                this.db.prepare('DELETE FROM context_snapshots').run();
+
+                // 8. Store repo root
+                this.db.prepare(`
+                    INSERT INTO session_state (state_key, state_value, updated_at)
+                    VALUES ('repo_root', ?, datetime('now'))
+                    ON CONFLICT(state_key) DO UPDATE SET state_value = excluded.state_value, updated_at = datetime('now')
+                `).run(normalizedRoot);
+            }
 
             // Stamp current version
             this.db.pragma(`user_version = ${Store.SCHEMA_VERSION}`);
@@ -742,6 +833,18 @@ export class Store {
     getFileById(fileId: string): { id: string, path: string, contentHash: string } | undefined {
         const row = this.db.prepare('SELECT id, path, content_hash as contentHash FROM files WHERE id = ?').get(fileId) as any;
         return row || undefined;
+    }
+
+    // --- Repo Root ---
+    /** Get stored repo root path. Falls back to process.cwd() if not set. */
+    getRepoRoot(): string {
+        const row = this.db.prepare("SELECT state_value FROM session_state WHERE state_key = 'repo_root'").get() as { state_value: string } | undefined;
+        return row?.state_value || process.cwd().replace(/\\/g, '/');
+    }
+
+    /** Store repo root path (forward-slash normalized). Called during indexing. */
+    setRepoRoot(root: string): void {
+        this.setState('repo_root', root.replace(/\\/g, '/'));
     }
 
     // --- Anchors ---

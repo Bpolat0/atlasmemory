@@ -105,6 +105,9 @@ export async function autoIndex(
     const generator = new CardGenerator();
     const flowGenerator = new FlowGenerator(store);
     const ignorePatterns = loadIgnorePatterns(rootDir);
+    // Persist repo root for portable paths
+    const normalizedRoot = rootDir.replace(/\\/g, '/');
+    store.setRepoRoot(normalizedRoot);
     let fileCount = 0;
     let symbolCount = 0;
     let skipped = 0;
@@ -125,7 +128,7 @@ export async function autoIndex(
     const batchSize = opts?.batchSize || 100;
 
     // Phase 1: Collect file paths (lightweight walk — no parsing, no reading)
-    const filePaths: string[] = [];
+    const filePaths: { abs: string; rel: string }[] = [];
 
     function collectFiles(dir: string): void {
         let entries;
@@ -179,7 +182,8 @@ export async function autoIndex(
                 const relPath = path.relative(rootDir, fullPath);
                 if (shouldIgnore(relPath, ignorePatterns)) continue;
 
-                filePaths.push(fullPath);
+                const relPath2 = path.relative(rootDir, fullPath).replace(/\\/g, '/');
+                filePaths.push({ abs: fullPath, rel: relPath2 });
                 if (maxFiles > 0 && filePaths.length >= maxFiles) return;
             }
         }
@@ -191,14 +195,14 @@ export async function autoIndex(
     for (let batchStart = 0; batchStart < filePaths.length; batchStart += batchSize) {
         const batch = filePaths.slice(batchStart, batchStart + batchSize);
 
-        for (const fullPath of batch) {
+        for (const { abs: fullPath, rel: relativePath } of batch) {
             let content: string;
             try {
                 content = fs.readFileSync(fullPath, 'utf-8');
             } catch { skipped++; continue; }
             const contentHash = crypto.createHash('sha256').update(content).digest('hex');
 
-            if (incremental && existingHashes.get(fullPath) === contentHash) {
+            if (incremental && existingHashes.get(relativePath) === contentHash) {
                 skipped++;
                 continue;
             }
@@ -215,7 +219,7 @@ export async function autoIndex(
             const loc = content.split('\n').length;
 
             const { symbols, anchors, imports, refs } = indexer.parse(fullPath, content);
-            const fileId = store.addFile(fullPath, language, contentHash, loc, content);
+            const fileId = store.addFile(relativePath, language, contentHash, loc, content);
 
             if (fileId) {
                 for (const sym of symbols) { sym.fileId = fileId; store.addSymbol(sym); }
@@ -225,7 +229,7 @@ export async function autoIndex(
 
                 const flowCards = flowGenerator.rebuildAndStoreForFile(fileId);
                 const fileCard = await generator.generateFileCard(
-                    fileId, fullPath, symbols, content, anchors, flowCards
+                    fileId, relativePath, symbols, content, anchors, flowCards
                 );
                 store.addFileCard(fileCard);
 
@@ -273,16 +277,12 @@ export async function incrementalReindex(
     let symbolCount = 0;
     let deletedCount = 0;
 
-    // Delete removed files from DB
+    // Delete removed files from DB (git outputs relative paths, DB now stores relative)
     for (const relPath of changedFiles.deleted) {
-        const absPath = path.resolve(rootDir, relPath);
-        const normalizedAbs = process.platform === 'win32' && /^[a-z]:/.test(absPath)
-            ? absPath[0].toUpperCase() + absPath.slice(1)
-            : absPath;
-        const files = store.getFiles();
-        const match = files.find(f => f.path === normalizedAbs || f.path === absPath);
-        if (match) {
-            store.deleteFile(match.id);
+        const normalizedRel = relPath.replace(/\\/g, '/');
+        const fileId = store.getFileId(normalizedRel);
+        if (fileId) {
+            store.deleteFile(fileId);
             deletedCount++;
         }
     }
@@ -314,8 +314,9 @@ export async function incrementalReindex(
 
         opts?.onFile?.(absPath);
 
+        const relativePath = relPath.replace(/\\/g, '/');
         const { symbols, anchors, imports, refs } = indexer.parse(absPath, content);
-        const fileId = store.addFile(absPath, language, contentHash, loc, content);
+        const fileId = store.addFile(relativePath, language, contentHash, loc, content);
 
         if (fileId) {
             for (const sym of symbols) { sym.fileId = fileId; store.addSymbol(sym); }
@@ -325,7 +326,7 @@ export async function incrementalReindex(
 
             const flowCards = flowGenerator.rebuildAndStoreForFile(fileId);
             const fileCard = await generator.generateFileCard(
-                fileId, absPath, symbols, content, anchors, flowCards
+                fileId, relativePath, symbols, content, anchors, flowCards
             );
             store.addFileCard(fileCard);
 
