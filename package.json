@@ -23,7 +23,7 @@
         "build:bundle": "node build.mjs",
         "build:all": "npm run build && npm run build:bundle",
         "prepublishOnly": "npm run build:all",
-        "test": "npm --workspaces --if-present run test",
+        "test": "vitest run",
         "eval": "node apps/eval/dist/src/index.js run-all",
         "eval:synth100": "node apps/eval/dist/src/index.js run --repo apps/eval/synth-100 --out apps/eval/reports --desc \"synth-100\"",
         "eval:synth500": "node apps/eval/dist/src/index.js run --repo apps/eval/synth-500 --out apps/eval/reports --desc \"synth-500\"",
@@ -55,7 +55,8 @@
         "esbuild": "^0.27.3",
         "eslint": "^8.0.0",
         "prettier": "^3.0.0",
-        "typescript": "^5.0.0"
+        "typescript": "^5.0.0",
+        "vitest": "^4.1.0"
     },
     "engines": {
         "node": ">=18"
