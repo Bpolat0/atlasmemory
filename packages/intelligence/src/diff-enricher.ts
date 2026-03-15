@@ -2,7 +2,6 @@ import { Store } from '@atlasmemory/store';
 import { ImpactAnalyzer } from './impact-analyzer.js';
 import type { SmartDiff, SymbolChange } from '@atlasmemory/core';
 import { execSync } from 'child_process';
-import path from 'path';
 
 export class DiffEnricher {
     private analyzer: ImpactAnalyzer;
@@ -45,8 +44,7 @@ export class DiffEnricher {
             if (parts.length < 2) continue;
 
             const statusChar = parts[0].trim().charAt(0);
-            const filePath = parts[parts.length - 1].trim();
-            const absolutePath = path.resolve(filePath);
+            const filePath = parts[parts.length - 1].trim().replace(/\\/g, '/');
 
             let changeType: 'added' | 'modified' | 'deleted';
             switch (statusChar) {
@@ -59,7 +57,7 @@ export class DiffEnricher {
             // For added files or unknown status, return basic SmartDiff
             if (changeType === 'added') {
                 diffs.push({
-                    filePath: absolutePath,
+                    filePath,
                     changeType,
                     symbolChanges: [],
                     impactSummary: { affectedFiles: 0, breakingChanges: 0 },
@@ -70,11 +68,11 @@ export class DiffEnricher {
                 continue;
             }
 
-            // For modified/deleted: enrich with store data
-            const fileId = this.store.getFileId(absolutePath);
+            // For modified/deleted: enrich with store data (git paths = DB paths, both relative)
+            const fileId = this.store.getFileId(filePath);
             if (!fileId) {
                 diffs.push({
-                    filePath: absolutePath,
+                    filePath,
                     changeType,
                     symbolChanges: [],
                     impactSummary: { affectedFiles: 0, breakingChanges: 0 },
@@ -129,7 +127,7 @@ export class DiffEnricher {
                 .map(d => d.filePath);
 
             diffs.push({
-                filePath: absolutePath,
+                filePath,
                 changeType,
                 symbolChanges,
                 impactSummary: { affectedFiles: totalAffectedFiles, breakingChanges: breakingCount },

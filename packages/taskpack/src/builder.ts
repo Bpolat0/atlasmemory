@@ -6,7 +6,10 @@ import crypto from 'crypto';
 import { ClaimProver, type EvidencePolicy, renderClaim } from './proof.js';
 
 export class TaskPackBuilder {
-    constructor(private store: Store) { }
+    private repoRoot: string;
+    constructor(private store: Store, repoRoot?: string) {
+        this.repoRoot = repoRoot || store.getRepoRoot();
+    }
 
     build(objective: string, initialFileIds: string[], tokenBudget: number = 12000, options: any = {}): string {
         if (!objective || !objective.trim()) {
@@ -99,8 +102,9 @@ export class TaskPackBuilder {
 
         for (const card of fileCards) {
             try {
-                if (fs.existsSync(card.path)) {
-                    const content = fs.readFileSync(card.path, 'utf-8');
+                const absPath = path.resolve(this.repoRoot, card.path);
+                if (fs.existsSync(absPath)) {
+                    const content = fs.readFileSync(absPath, 'utf-8');
                     const ext = path.extname(card.path).slice(1);
 
                     let snippets: string[] = [];
@@ -485,23 +489,8 @@ export class TaskPackBuilder {
         }
         if (paths.length === 0) return '(no files)';
 
-        // Find common prefix
-        const parts = paths.map(p => p.replace(/\\/g, '/').split('/'));
-        let prefix = '';
-        if (parts.length > 1) {
-            const first = parts[0];
-            let i = 0;
-            while (i < first.length && parts.every(p => p[i] === first[i])) i++;
-            prefix = first.slice(0, i).join('/');
-        } else {
-            prefix = parts[0].slice(0, -1).join('/');
-        }
-
-        // Build tree relative to prefix
-        const relPaths = paths.map(p => {
-            const rel = p.replace(/\\/g, '/').slice(prefix.length).replace(/^\//, '');
-            return rel || path.basename(p);
-        }).sort();
+        // Paths are already relative — just normalize and sort
+        const relPaths = paths.map(p => p.replace(/\\/g, '/')).sort();
 
         // Group by directory
         const dirs = new Map<string, string[]>();
@@ -512,7 +501,7 @@ export class TaskPackBuilder {
         }
 
         const lines: string[] = [];
-        const root = prefix ? path.basename(prefix) + '/' : './';
+        const root = './';
         lines.push('```');
         lines.push(root);
         const dirEntries = Array.from(dirs.entries()).sort();

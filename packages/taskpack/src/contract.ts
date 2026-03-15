@@ -139,16 +139,18 @@ export class ContextContractService {
     }
 
     private computeCoverageRatio(): number {
-        const indexed = new Set(this.store.getFiles().map(file => path.resolve(file.path).replace(/\\/g, '/').toLowerCase()));
+        // DB stores relative paths — just count indexed files
+        const indexed = this.store.getFiles().length;
 
         let discoverable = 0;
         const walk = (dir: string) => {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            let entries;
+            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
             for (const entry of entries) {
                 const full = path.resolve(dir, entry.name);
-                const normalized = full.replace(/\\/g, '/').toLowerCase();
                 if (entry.isDirectory()) {
                     if (['node_modules', '.git', '.atlas', 'dist', 'build', 'coverage', 'out', '.cache', '.turbo'].includes(entry.name)) continue;
+                    const normalized = full.replace(/\\/g, '/').toLowerCase();
                     if (normalized.includes('/apps/eval/reports/')) continue;
                     walk(full);
                     continue;
@@ -163,12 +165,6 @@ export class ContextContractService {
 
         walk(this.repoRoot);
         if (discoverable === 0) return 1;
-
-        let matched = 0;
-        for (const filePath of indexed) {
-            if (!filePath.startsWith(path.resolve(this.repoRoot).replace(/\\/g, '/').toLowerCase())) continue;
-            matched++;
-        }
-        return matched / discoverable;
+        return indexed / discoverable;
     }
 }

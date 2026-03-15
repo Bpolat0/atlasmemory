@@ -196,10 +196,8 @@ export function registerCliCommands(program: Command): void {
                 }
                 return;
             }
-            const cwd = process.cwd();
             for (const r of results) {
-                const relPath = path.relative(cwd, r.file.path).replace(/\\/g, '/');
-                console.log(`  ${r.score.toFixed(1).padStart(5)}  ${relPath}`);
+                console.log(`  ${r.score.toFixed(1).padStart(5)}  ${r.file.path}`);
             }
         });
 
@@ -522,8 +520,7 @@ export function registerCliCommands(program: Command): void {
             const searchResults = search.search('main entry', 3);
             if (searchResults.length > 0) {
                 for (const r of searchResults) {
-                    const relPath = path.relative(cwd, r.file.path).replace(/\\/g, '/');
-                    console.log(`  ${relPath} (score: ${r.score.toFixed(1)})`);
+                    console.log(`  ${r.file.path} (score: ${r.score.toFixed(1)})`);
                 }
             } else {
                 console.log('  (no results for this query)');
@@ -541,8 +538,7 @@ export function registerCliCommands(program: Command): void {
             `).all() as any[];
             if (anchors.length > 0) {
                 for (const a of anchors) {
-                    const relAnchorPath = path.relative(cwd, a.file_path).replace(/\\/g, '/');
-                    console.log(`  ${relAnchorPath}:${a.start_line}-${a.end_line} [hash:${a.snippet_hash?.slice(0, 8)}]`);
+                    console.log(`  ${a.file_path}:${a.start_line}-${a.end_line} [hash:${a.snippet_hash?.slice(0, 8)}]`);
                 }
             }
             console.log('\nAtlasMemory is ready! Try: atlasmemory search "authentication"');

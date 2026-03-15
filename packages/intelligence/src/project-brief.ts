@@ -128,8 +128,8 @@ export class ProjectBriefBuilder {
         const dirFileIds = new Map<string, string[]>();
 
         for (const file of files) {
-            const rel = path.relative(rootDir, file.path).replace(/\\/g, '/');
-            if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
+            // Paths are already relative in DB
+            const rel = file.path.replace(/\\/g, '/');
             const parts = rel.split('/');
             const dir = parts.length > 2 ? parts.slice(0, 2).join('/') : (parts.length > 1 ? parts[0] : '.');
             dirCounts.set(dir, (dirCounts.get(dir) || 0) + 1);
@@ -149,7 +149,7 @@ export class ProjectBriefBuilder {
 
         // Entry points — prefer src/main.ts or root-level entry files
         const entryFiles = files.filter(f => {
-            const rel = path.relative(rootDir, f.path).replace(/\\/g, '/');
+            const rel = f.path.replace(/\\/g, '/');
             const base = path.basename(f.path);
             const isEntry = base === 'main.ts' || base === 'main.js' || base === 'app.ts' || base === 'server.ts';
             const isShallow = rel.split('/').length <= 3;
@@ -157,7 +157,7 @@ export class ProjectBriefBuilder {
         }).slice(0, 3);
 
         if (entryFiles.length > 0) {
-            lines.push('Entry: ' + entryFiles.map(f => `\`${path.relative(rootDir, f.path).replace(/\\/g, '/')}\``).join(', '));
+            lines.push('Entry: ' + entryFiles.map(f => `\`${f.path.replace(/\\/g, '/')}\``).join(', '));
         }
 
         return lines.join('\n');

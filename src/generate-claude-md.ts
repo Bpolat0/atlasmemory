@@ -70,11 +70,8 @@ function collectProjectData(store: Store, rootDir: string): ProjectData {
     const projectName = pkg.name || path.basename(rootDir);
     const projectDesc = pkg.description || '';
 
-    // Filter to project root
-    const projectFiles = files.filter(f => {
-        const rel = path.relative(rootDir, f.path).replace(/\\/g, '/');
-        return !rel.startsWith('..') && !path.isAbsolute(rel);
-    });
+    // Paths are already relative in DB
+    const projectFiles = files;
 
     // Languages
     const langCounts = new Map<string, number>();
@@ -94,7 +91,7 @@ function collectProjectData(store: Store, rootDir: string): ProjectData {
     const dirCounts = new Map<string, number>();
     const dirSymbols = new Map<string, string[]>();
     for (const file of projectFiles) {
-        const rel = path.relative(rootDir, file.path).replace(/\\/g, '/');
+        const rel = file.path.replace(/\\/g, '/');
         const parts = rel.split('/');
         const dir = parts.length > 2 ? parts.slice(0, 2).join('/') : (parts.length > 1 ? parts[0] : '.');
         dirCounts.set(dir, (dirCounts.get(dir) || 0) + 1);
@@ -120,7 +117,7 @@ function collectProjectData(store: Store, rootDir: string): ProjectData {
         const rawPurpose = card?.level1?.purpose || card?.level0?.purpose || '';
         const purpose = rawPurpose.includes('Auto-generated') || rawPurpose.includes('Managed by AtlasMemory')
             ? '' : rawPurpose;
-        const relPath = path.relative(rootDir, file.path).replace(/\\/g, '/');
+        const relPath = file.path.replace(/\\/g, '/');
         fileSymbolCounts.push({
             relPath,
             symbolCount: syms.length,

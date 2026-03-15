@@ -584,7 +584,7 @@ export class BootPackBuilder {
 
         for (const [alias, dir] of Object.entries(pathAliases)) {
             const dirFiles = files.filter(f => {
-                const rel = path.relative(process.cwd(), f.path).replace(/\\/g, '/');
+                const rel = f.path.replace(/\\/g, '/');
                 return rel.startsWith(dir);
             });
 
@@ -660,7 +660,7 @@ export class BootPackBuilder {
         const files = this.store.getFiles();
         const dirCounts = new Map<string, number>();
         for (const file of files) {
-            const rel = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
+            const rel = file.path.replace(/\\/g, '/');
             const parts = rel.split('/');
             // Use top 2 levels as directory key (e.g., "src/components" or "packages/store/src")
             const dir = parts.length > 2 ? parts.slice(0, 2).join('/') : (parts.length > 1 ? parts[0] : '.');
@@ -686,7 +686,7 @@ export class BootPackBuilder {
         const fns: string[] = [];
         const seenNames = new Set<string>();
         for (const file of files) {
-            const rel = path.relative(process.cwd(), file.path).replace(/\\/g, '/');
+            const rel = file.path.replace(/\\/g, '/');
             if (SKIP_DIRS.some(d => rel.startsWith(d))) continue;
             const symbols = this.store.getSymbolsForFile(file.id);
             for (const sym of symbols) {
@@ -775,11 +775,14 @@ export class BootPackBuilder {
         topMissingExts: Array<{ ext: string; count: number }>;
     } {
         const indexed = this.store.getFilesWithMeta();
-        const indexedSet = new Set(indexed.map(file => path.resolve(file.path).toLowerCase()));
+        // DB stores relative paths — just count indexed files
+        const indexedSet = new Set(indexed.map(file => file.path.replace(/\\/g, '/').toLowerCase()));
+        const repoRoot = this.store.getRepoRoot();
 
         const discoverable: string[] = [];
         const walk = (dir: string) => {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            let entries;
+            try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
             for (const entry of entries) {
                 const full = path.resolve(dir, entry.name);
                 const normalized = full.replace(/\\/g, '/').toLowerCase();
@@ -796,13 +799,16 @@ export class BootPackBuilder {
                 }
             }
         };
-        walk(process.cwd());
+        walk(repoRoot);
 
-        const missing = discoverable.filter(file => !indexedSet.has(path.resolve(file).toLowerCase()));
+        const missing = discoverable.filter(file => {
+            const rel = path.relative(repoRoot, file).replace(/\\/g, '/').toLowerCase();
+            return !indexedSet.has(rel);
+        });
         const dirCounts = new Map<string, number>();
         const extCounts = new Map<string, number>();
         missing.forEach(file => {
-            const relDir = path.relative(process.cwd(), path.dirname(file)).replace(/\\/g, '/');
+            const relDir = path.relative(repoRoot, path.dirname(file)).replace(/\\/g, '/');
             const key = relDir || '.';
             dirCounts.set(key, (dirCounts.get(key) || 0) + 1);
 
@@ -811,7 +817,7 @@ export class BootPackBuilder {
         });
 
         const discoverableCount = discoverable.length;
-        const indexedCount = indexed.filter(file => discoverable.some(src => path.resolve(src).toLowerCase() === path.resolve(file.path).toLowerCase())).length;
+        const indexedCount = indexed.length;
 
         return {
             discoverable: discoverableCount,

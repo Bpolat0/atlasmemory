@@ -665,16 +665,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     results.sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
                 }
 
-                // Add relative paths for AI agent convenience (absolute paths are hard to correlate)
-                const rootDir = process.cwd().replace(/\\/g, '/');
-                for (const r of results as any[]) {
-                    if (r.file?.path) {
-                        const norm = r.file.path.replace(/\\/g, '/');
-                        r.file.relativePath = norm.startsWith(rootDir)
-                            ? norm.slice(rootDir.length + 1)
-                            : norm;
-                    }
-                }
+                // file.path is already relative (Phase 25) — no conversion needed
 
                 const responseText = JSON.stringify(results, null, 2);
                 budgetTracker.trackUsage(sessionId, 'search_repo', responseText);
@@ -719,8 +710,10 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             case 'index_file': {
                 const filePath = path.resolve(String(args.path));
                 if (!fs.existsSync(filePath)) {
-                    return { content: [{ type: 'text', text: `File not found: ${filePath}. Provide an absolute path to an existing file.` }], isError: true };
+                    return { content: [{ type: 'text', text: `File not found: ${filePath}. Provide a path to an existing file.` }], isError: true };
                 }
+                const repoRoot = store.getRepoRoot();
+                const relativePath = path.relative(repoRoot, filePath).replace(/\\/g, '/');
 
                 let content: string;
                 try {
@@ -737,7 +730,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const contentHash = createHash('sha256').update(content).digest('hex');
                 const loc = content.split('\n').length;
 
-                const fileId = store.addFile(filePath, language, contentHash, loc, content);
+                const fileId = store.addFile(relativePath, language, contentHash, loc, content);
 
                 // Clear stale data
                 const oldSyms = store.db.prepare('SELECT id FROM symbols WHERE file_id = ?').all(fileId) as { id: string }[];
@@ -758,7 +751,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 for (const ref of refs) { store.addRef(ref); }
 
                 const flowCards = flowGenerator.rebuildAndStoreForFile(fileId);
-                const fileCard = await deterministicCardGenerator.generateFileCard(fileId, filePath, symbols, content, anchors, flowCards);
+                const fileCard = await deterministicCardGenerator.generateFileCard(fileId, relativePath, symbols, content, anchors, flowCards);
                 const quality = scoreFileCard(fileCard, symbols, anchors);
                 fileCard.qualityScore = quality.score;
                 fileCard.qualityFlags = quality.flags;
@@ -770,15 +763,24 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 return {
                     content: [{
                         type: 'text',
-                        text: JSON.stringify({ file: { fileId, path: filePath, language, loc }, symbols, anchors, imports, refs, flowCards }, null, 2),
+                        text: JSON.stringify({ file: { fileId, path: relativePath, language, loc }, symbols, anchors, imports, refs, flowCards }, null, 2),
                     }],
                 };
             }
 
             case 'get_allowed_evidence': {
-                const filePath = String(args.path);
+                const inputPath = String(args.path).replace(/\\/g, '/');
                 const max = Number(args.max || 200);
-                const file = store.getFiles().find(f => f.path === filePath);
+                // Normalize: if absolute, convert to relative for lookup
+                const repoRootEv = store.getRepoRoot();
+                let lookupPath = inputPath;
+                const rootNorm = repoRootEv.toLowerCase();
+                if (inputPath.toLowerCase().startsWith(rootNorm + '/')) {
+                    lookupPath = inputPath.slice(repoRootEv.length + 1);
+                } else if (inputPath.toLowerCase().startsWith(rootNorm)) {
+                    lookupPath = inputPath.slice(repoRootEv.length).replace(/^\//, '');
+                }
+                const file = store.getFiles().find(f => f.path === lookupPath);
                 if (!file) return { content: [{ type: 'text', text: `File not indexed: ${filePath}. Run index_file or index_repo first.` }], isError: true };
 
                 const anchors = store.getAnchorsForFile(file.id);

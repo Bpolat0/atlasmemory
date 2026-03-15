@@ -145,11 +145,13 @@ export class EnrichmentCoordinator {
         const symbols = this.store.getSymbolsForFile(fileId);
         const imports = this.store.getImportsForFile(fileId);
 
-        // Read file content for snippet
+        // Read file content for snippet (resolve relative path against repo root)
         let codeSnippet = `(${symbols.length} symbols)`;
         try {
-            if (fs.existsSync(file.path)) {
-                const content = fs.readFileSync(file.path, 'utf-8');
+            const repoRoot = this.store.getRepoRoot();
+            const absPath = path.resolve(repoRoot, file.path);
+            if (fs.existsSync(absPath)) {
+                const content = fs.readFileSync(absPath, 'utf-8');
                 const lines = content.split('\n').slice(0, MAX_SNIPPET_LINES);
                 codeSnippet = lines.join('\n');
             }
