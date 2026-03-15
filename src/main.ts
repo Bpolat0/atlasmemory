@@ -37,4 +37,16 @@ program.command('serve', { isDefault: true })
 // Register all CLI subcommands
 registerCliCommands(program);
 
+// Global error handlers — CLI only (MCP server has its own in mcp-server.ts)
+if (process.stdin.isTTY || process.stdout.isTTY) {
+    process.on('uncaughtException', (err) => {
+        console.error(`Fatal error: ${err.message}`);
+        process.exit(1);
+    });
+    process.on('unhandledRejection', (reason) => {
+        console.error(`Unhandled rejection: ${reason}`);
+        process.exit(1);
+    });
+}
+
 program.parse();

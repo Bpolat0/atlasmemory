@@ -848,4 +848,10 @@ export function registerCliCommands(program: Command): void {
             store.resolveProjectMemory(numId);
             console.log(`Resolved memory #${numId}`);
         });
+
+    // Close DB and exit after any command completes — prevents CLI hang (Gap 4)
+    program.hook('postAction', () => {
+        try { store?.close(); } catch { /* already closed or never opened */ }
+        process.exit(0);
+    });
 }
