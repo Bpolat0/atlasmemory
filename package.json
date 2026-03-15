@@ -2,12 +2,16 @@
     "name": "atlasmemory",
     "version": "1.0.0",
     "description": "Proof-backed, drift-resistant AI memory for your codebase",
-    "private": true,
     "type": "module",
     "bin": {
         "atlasmemory": "dist/atlasmemory.js"
     },
     "main": "dist/atlasmemory.js",
+    "exports": {
+        ".": {
+            "import": "./dist/atlasmemory.js"
+        }
+    },
     "files": [
         "dist/atlasmemory.js",
         "dist/atlasmemory.js.map",
