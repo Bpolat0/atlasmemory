@@ -49,6 +49,30 @@ test-sfm-loop.js
 .env.*
 *.key
 
+# Internal docs (session notes, plans, specs)
+SESSION_HANDOFF.md
+project_handoff.md
+memory.md
+docs/plans/
+docs/superpowers/
+
+# Claude Code / AI tool configs (personal)
+.claude/
+.mcp.json
+.cursorrules
+
+# Debug scripts
+apps/eval/debug-fts.js
+
+# VSIX packages (built artifacts)
+*.vsix
+
+# Stitch (landing page generator temp)
+stitch/
+
+# Git backup
+.git-backup/
+
 # Cache
 .cache/
 .turbo/
