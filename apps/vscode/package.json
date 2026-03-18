@@ -4,7 +4,7 @@
     "description": "AI-powered code memory — proof-backed context, drift detection, and readiness scoring for your codebase",
     "version": "0.1.0",
     "publisher": "atlasmemory",
-    "license": "MIT",
+    "license": "GPL-3.0",
     "engines": {
         "vscode": "^1.85.0"
     },

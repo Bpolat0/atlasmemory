@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/atlasmemory"><img src="https://img.shields.io/npm/v/atlasmemory" alt="npm sürümü"></a>
   <a href="https://github.com/Bpolat0/atlasmemory/stargazers"><img src="https://img.shields.io/github/stars/Bpolat0/atlasmemory?style=social" alt="GitHub yıldızları"></a>
-  <a href="../../LICENSE"><img src="https://img.shields.io/badge/Lisans-MIT-blue.svg" alt="Lisans: MIT"></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/badge/Lisans-GPL--3.0-blue.svg" alt="Lisans: GPL-3.0"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js"></a>
   <a href="#desteklenen-diller"><img src="https://img.shields.io/badge/dil-11-blueviolet" alt="Diller"></a>
   <a href="#geliştirme"><img src="https://img.shields.io/badge/testler-147%20başarılı-brightgreen" alt="Testler"></a>
@@ -445,7 +445,7 @@ AtlasMemory size zaman kazandırıyorsa, bir yıldız vermeyi düşünün — ba
 
 ## Lisans
 
-[MIT](../../LICENSE)
+[GPL-3.0](../../LICENSE)
 
 <p align="center">
   <a href="https://automiflow.com"><img src="../../assets/automiflow.png" alt="automiflow" height="24"></a><br>

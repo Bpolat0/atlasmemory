@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/atlasmemory"><img src="https://img.shields.io/npm/v/atlasmemory" alt="npm version"></a>
   <a href="https://github.com/Bpolat0/atlasmemory/stargazers"><img src="https://img.shields.io/github/stars/Bpolat0/atlasmemory?style=social" alt="GitHub stars"></a>
-  <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="License: GPL-3.0"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js"></a>
   <a href="#対応言語"><img src="https://img.shields.io/badge/languages-11-blueviolet" alt="Languages"></a>
   <a href="#開発"><img src="https://img.shields.io/badge/tests-147%20passing-brightgreen" alt="Tests"></a>
@@ -445,7 +445,7 @@ AtlasMemoryが時間の節約に役立ったら、スターを付けてくださ
 
 ## ライセンス
 
-[MIT](../../LICENSE)
+[GPL-3.0](../../LICENSE)
 
 <p align="center">
   <a href="https://automiflow.com"><img src="../../assets/automiflow.png" alt="automiflow" height="24"></a><br>

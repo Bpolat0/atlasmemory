@@ -76,4 +76,4 @@ Your Code → Tree-sitter → SQLite + FTS5 → AI-Ready Context
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
