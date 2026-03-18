@@ -2,8 +2,8 @@
     "name":  "@atlasmemory/store",
     "description": "SQLite storage engine with FTS5 search",
     "version":  "0.1.0",
-    "main":  "dist/src/index.js",
-    "types":  "dist/src/index.d.ts",
+    "main":  "dist/index.js",
+    "types":  "dist/index.d.ts",
     "scripts":  {
                     "build":  "tsc",
                     "test":  "echo \"Error: no test specified\" \u0026\u0026 exit 1"
