@@ -1,5 +1,5 @@
 # AtlasMemory
-
+NOTE : Benimle her zaman türkçe konuş.
 ## What This Is
 Local-first code memory system that gives AI agents "infinite context." Indexes repos with Tree-sitter, generates evidence-backed summaries (FileCards), and packages optimized context windows (TaskPacks) within token budgets. Solves context explosion and LLM drift.
 

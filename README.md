@@ -94,6 +94,7 @@ atlasmemory taskpack "fix login bug"            # Proof-backed context pack
 atlasmemory generate                            # Auto-generate CLAUDE.md
 atlasmemory status                              # AI readiness score
 atlasmemory doctor                              # Health diagnostics
+atlasmemory enrich                              # AI enrichment (free CLI / paid API)
 atlasmemory demo                                # See it in action
 ```
 
@@ -200,7 +201,7 @@ atlasmemory (npm package)
 ├── packages/taskpack    — Token budgeting, proof system, contracts
 ├── packages/intelligence — Impact analysis, prefetch, diff, memory, learning
 ├── apps/vscode          — VS Code extension (status bar, dashboard, sidebar)
-└── dist/atlasmemory.js  — Single bundled binary (~255KB, esbuild)
+└── dist/atlasmemory.js  — Single bundled binary (~382KB, esbuild)
 ```
 
 ## Development
@@ -210,6 +211,7 @@ git clone https://github.com/Bpolat0/atlasmemory.git
 cd atlasmemory
 npm install
 npm run build:all        # Build all packages + bundle
+npm test                 # Run unit tests (98 tests, Vitest)
 npm run eval:synth100    # Quick evaluation suite
 npm run eval             # Full evaluation (synth-100 + synth-500 + real-repo)
 ```
