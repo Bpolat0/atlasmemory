@@ -85,20 +85,22 @@ export class ClaimProver {
     applyPolicy(claims: ClaimInput[], policy: EvidencePolicy, maxEvidence: number = 3): Claim[] {
         const output: Claim[] = [];
         for (const item of claims) {
-            const proven = this.proveClaim(item.text, item.scopePath, maxEvidence, item.fileId);
             const initialIds = Array.isArray(item.evidenceIds) ? item.evidenceIds.filter(Boolean) : [];
-            const evidenceIds = initialIds.length > 0 ? initialIds : proven.claim.evidenceIds;
-            const hasEvidence = evidenceIds.length > 0;
 
-            if (policy === 'off') {
+            // Skip expensive proveClaim when policy is 'off' or when evidence IDs are already provided
+            if (policy === 'off' || initialIds.length > 0) {
                 output.push({
                     text: item.text,
-                    evidenceIds,
-                    status: hasEvidence ? 'PROVEN' : (item.status || 'UNPROVEN'),
+                    evidenceIds: initialIds,
+                    status: initialIds.length > 0 ? 'PROVEN' : (item.status || 'UNPROVEN'),
                     score: item.score
                 });
                 continue;
             }
+
+            const proven = this.proveClaim(item.text, item.scopePath, maxEvidence, item.fileId);
+            const evidenceIds = proven.claim.evidenceIds;
+            const hasEvidence = evidenceIds.length > 0;
 
             if (!hasEvidence && policy === 'strict') {
                 continue;
@@ -256,7 +258,7 @@ export class ClaimProver {
 
         const anchorFromFile = (targetFileId: string, baseScore: number, stage: ProofStage) => {
             if (!canRunStage(stage)) return;
-            const anchors = this.store.getAnchorsForFile(targetFileId).slice(0, 50);
+            const anchors = this.store.getAnchorsForFile(targetFileId).slice(0, 10);
             for (const anchor of anchors) {
                 const snippet = this.getAnchorSnippet(anchor.id);
                 if (!snippet) continue;
@@ -299,7 +301,7 @@ export class ClaimProver {
             const orderedFiles = [
                 ...allFiles.filter(f => ftsFileIds.has(f.id)),
                 ...allFiles.filter(f => !ftsFileIds.has(f.id)),
-            ].slice(0, 40);
+            ].slice(0, 15);
             for (const file of orderedFiles) {
                 const anchors = this.store.getAnchorsForFile(file.id);
                 if (anchors.length === 0) continue;
@@ -327,13 +329,31 @@ export class ClaimProver {
         return path.dirname(path.resolve(a.path)).toLowerCase() === path.dirname(path.resolve(b.path)).toLowerCase();
     }
 
+    private fileContentCache = new Map<string, string[] | null>();
+
     private getAnchorSnippet(anchorId: string): string {
         const anchor = this.store.getAnchor(anchorId);
         if (!anchor) return '';
         const file = this.store.getFileById(anchor.fileId);
-        if (!file || !fs.existsSync(file.path)) return '';
-        const content = fs.readFileSync(file.path, 'utf-8');
-        const lines = content.split(/\r?\n/);
+        if (!file) return '';
+
+        // Cache file content to avoid repeated fs.readFileSync calls
+        if (!this.fileContentCache.has(file.id)) {
+            try {
+                const repoRoot = this.store.getRepoRoot();
+                const absPath = path.resolve(repoRoot, file.path);
+                if (fs.existsSync(absPath)) {
+                    this.fileContentCache.set(file.id, fs.readFileSync(absPath, 'utf-8').split(/\r?\n/));
+                } else {
+                    this.fileContentCache.set(file.id, null);
+                }
+            } catch {
+                this.fileContentCache.set(file.id, null);
+            }
+        }
+
+        const lines = this.fileContentCache.get(file.id);
+        if (!lines) return '';
         const start = Math.max(1, anchor.startLine - 1);
         const end = Math.min(lines.length, anchor.endLine + 1, start + 9);
         const excerpt = lines.slice(start - 1, end).join('\n').trim();

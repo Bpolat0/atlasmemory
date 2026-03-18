@@ -62,7 +62,7 @@ describe('Integration: Search → TaskPack → Proof → Contract', () => {
             deltapackHash: undefined,
             taskpackHash: hash('taskpack-content'),
             objective: 'Fix auth',
-            budgets: { total: 8000 },
+            budgets: { task: 8000 },
             proofMode: 'strict',
             minDbCoverage: undefined,
             dbSig,
@@ -133,12 +133,12 @@ function seedRealisticData(store: Store) {
 
     // Add symbols
     const symbols = [
-        { fileIdx: 0, name: 'authenticateUser', kind: 'function', start: 1, end: 25 },
-        { fileIdx: 0, name: 'validateToken', kind: 'function', start: 27, end: 50 },
-        { fileIdx: 1, name: 'authMiddleware', kind: 'function', start: 1, end: 30 },
-        { fileIdx: 2, name: 'Store', kind: 'class', start: 1, end: 200 },
-        { fileIdx: 3, name: 'registerRoutes', kind: 'function', start: 1, end: 50 },
-        { fileIdx: 4, name: 'sha256', kind: 'function', start: 1, end: 15 },
+        { fileIdx: 0, name: 'authenticateUser', kind: 'function' as const, start: 1, end: 25 },
+        { fileIdx: 0, name: 'validateToken', kind: 'function' as const, start: 27, end: 50 },
+        { fileIdx: 1, name: 'authMiddleware', kind: 'function' as const, start: 1, end: 30 },
+        { fileIdx: 2, name: 'Store', kind: 'class' as const, start: 1, end: 200 },
+        { fileIdx: 3, name: 'registerRoutes', kind: 'function' as const, start: 1, end: 50 },
+        { fileIdx: 4, name: 'sha256', kind: 'function' as const, start: 1, end: 15 },
     ];
 
     const symIds: string[] = [];

@@ -131,9 +131,8 @@ export class TaskPackBuilder {
                         // Track shown ranges to skip overlapping anchors (prevents duplicate code blocks)
                         const shownRanges: Array<{ start: number; end: number }> = [];
 
-                        // Scan ALL file anchors and rank by query relevance — not just the 5
-                        // pre-stored evidenceAnchorIds (which miss functions deep in the file).
-                        // This ensures "search ranking" finds scoredSearch, "enrichment" finds enrichDeterministic, etc.
+                        // Rank anchors by query relevance. Use evidenceAnchorIds first,
+                        // then sample from all file anchors (capped at 20 to avoid O(n*m) on large files).
                         const QUERY_STOPWORDS = new Set([
                             'the', 'and', 'for', 'with', 'from', 'into', 'that', 'this', 'what', 'how',
                             'why', 'when', 'where', 'does', 'are', 'was', 'were', 'has', 'have', 'had',
@@ -141,12 +140,23 @@ export class TaskPackBuilder {
                         ]);
                         const queryTerms = objective.toLowerCase().split(/\W+/)
                             .filter(t => t.length > 2 && !QUERY_STOPWORDS.has(t));
-                        const allFileAnchors = this.store.getAnchorsForFile(card.fileId);
-                        const candidateAnchors = allFileAnchors.length > 0
-                            ? allFileAnchors
-                            : card.level1.evidenceAnchorIds
-                                .map(id => this.store.getAnchor(id))
-                                .filter(Boolean) as import('@atlasmemory/core').Anchor[];
+
+                        // Start with evidence anchors (curated, fast)
+                        const evidenceAnchors = card.level1.evidenceAnchorIds
+                            .map(id => this.store.getAnchor(id))
+                            .filter(Boolean) as import('@atlasmemory/core').Anchor[];
+
+                        // Supplement with file anchors if needed, but cap at 20 total candidates
+                        const MAX_CANDIDATE_ANCHORS = 20;
+                        let candidateAnchors = evidenceAnchors;
+                        if (candidateAnchors.length < MAX_CANDIDATE_ANCHORS) {
+                            const allFileAnchors = this.store.getAnchorsForFile(card.fileId);
+                            const evidenceIds = new Set(card.level1.evidenceAnchorIds);
+                            for (const a of allFileAnchors) {
+                                if (candidateAnchors.length >= MAX_CANDIDATE_ANCHORS) break;
+                                if (!evidenceIds.has(a.id)) candidateAnchors.push(a);
+                            }
+                        }
                         const rankedAnchorIds = candidateAnchors
                             .map(anchor => {
                                 const snip = this.getSnippet(content, anchor.startLine, anchor.endLine).toLowerCase();

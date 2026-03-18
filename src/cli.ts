@@ -205,7 +205,7 @@ export function registerCliCommands(program: Command): void {
         .description('Generate a proof-backed context pack')
         .option('--budget <number>', 'Token budget', '12000')
         .option('--limit <number>', 'Max files', '20')
-        .option('--proof <mode>', 'Proof mode (strict|warn|off)', 'strict')
+        .option('--proof <mode>', 'Proof mode (strict|warn|off)', 'warn')
         .action((objective, options) => {
             const store = getStore();
             const service = new SearchService(store);
