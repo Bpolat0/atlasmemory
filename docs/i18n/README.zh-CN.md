@@ -9,6 +9,7 @@
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js"></a>
   <a href="#支持的语言"><img src="https://img.shields.io/badge/languages-11-blueviolet" alt="Languages"></a>
   <a href="#开发"><img src="https://img.shields.io/badge/tests-147%20passing-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/sponsors/Bpolat0"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=flat&logo=githubsponsors" alt="Sponsor"></a>
 </p>
 
 <p align="center">

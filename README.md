@@ -9,6 +9,7 @@
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js"></a>
   <a href="#supported-languages"><img src="https://img.shields.io/badge/languages-11-blueviolet" alt="languages-11"></a>
   <a href="#development"><img src="https://img.shields.io/badge/tests-147%20passing-brightgreen" alt="tests-147 passing"></a>
+  <a href="https://github.com/sponsors/Bpolat0"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=flat&logo=githubsponsors" alt="Sponsor"></a>
 </p>
 
 <p align="center">

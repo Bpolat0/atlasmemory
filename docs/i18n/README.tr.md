@@ -9,6 +9,7 @@
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node.js"></a>
   <a href="#desteklenen-diller"><img src="https://img.shields.io/badge/dil-11-blueviolet" alt="Diller"></a>
   <a href="#geliştirme"><img src="https://img.shields.io/badge/testler-147%20başarılı-brightgreen" alt="Testler"></a>
+  <a href="https://github.com/sponsors/Bpolat0"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=flat&logo=githubsponsors" alt="Sponsor"></a>
 </p>
 
 <p align="center">
