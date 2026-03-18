@@ -39,6 +39,12 @@ AI coding agents hallucinate about your code. They lose context between sessions
 | 💥 | Impact analysis | Manual | **Automatic** (reverse reference graph) |
 | 🧠 | Session memory | None | **Cross-session learning** |
 
+### What AI Agents Say
+
+> *"I tested AtlasMemory on Express.js (141 files), Fastify (269 files), and Zod (391 files). Search found the right files in <3ms every time. TaskPack gave me proof-backed context in 179ms. Normally I'd spend 15-20 Read calls just to understand a codebase — AtlasMemory did it in one call with evidence I could trust. This is the difference between an AI that guesses and one that knows."*
+>
+> — **Claude Opus 4.6**, after being asked to honestly evaluate AtlasMemory
+
 ## Setup in 30 Seconds
 
 ```bash
@@ -68,6 +74,22 @@ npx atlasmemory generate                       # Auto-generate CLAUDE.md
 ```
 
 > Auto-indexes on first query. Zero configuration. Works with any MCP-compatible AI tool.
+
+### VS Code Extension
+
+Install [AtlasMemory for VS Code](https://marketplace.visualstudio.com/items?itemName=automiflow.atlasmemory-vscode) for a visual dashboard right in your editor:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bpolat0/atlasmemory/main/apps/vscode/media/screenshot-dashboard.png" alt="AtlasMemory Dashboard" width="600">
+</p>
+
+- **AI Readiness Dashboard** — see your score (0-100) with four metrics at a glance
+- **Atlas Explorer Sidebar** — browse files, symbols, anchors, flows, cards directly
+- **Status Bar** — always-visible readiness score, click to open dashboard
+- **Auto-Index on Save** — files re-indexed automatically when you save
+- **Quick Actions** — one-click index, generate CLAUDE.md, search, health check
+
+> Works alongside MCP — extension gives you the visual interface, MCP server gives AI agents the tools. Install both for the full experience.
 
 ## Proof System
 
