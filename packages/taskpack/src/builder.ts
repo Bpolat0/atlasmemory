@@ -35,8 +35,7 @@ export class TaskPackBuilder {
         const sections: string[] = [];
 
         // --- P1: Header & Objective ---
-        const objectiveClaim = prover.applyPolicy([{ text: objective, scopePath: process.cwd() }], proofPolicy, 3);
-        const objectiveLine = objectiveClaim.map(claim => renderClaim(claim)).join('\n') || 'C:Objective omitted due to proof policy';
+        const objectiveLine = `C:${objective}`;
         const projectMap = this.buildProjectMap(candidates);
         const header = `# Task Pack v3\n\n## Objective\n${objectiveLine}\n\n## Project Map\n${projectMap}\n\n`;
         const headerTokens = this.estimateTokens(header);
