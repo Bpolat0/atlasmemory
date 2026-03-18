@@ -57,5 +57,8 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Generate Synth-100
+        run: node apps/eval/dist/src/index.js generate --out apps/eval/synth-100 --files 100
+
       - name: Eval Synth-100
         run: npm run eval:synth100
