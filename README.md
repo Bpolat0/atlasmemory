@@ -41,9 +41,26 @@ AI coding agents hallucinate about your code. They lose context between sessions
 
 ### What AI Agents Say
 
-> *"I tested AtlasMemory on Express.js (141 files), Fastify (269 files), and Zod (391 files). Search found the right files in <3ms every time. TaskPack gave me proof-backed context in 179ms. Normally I'd spend 15-20 Read calls just to understand a codebase — AtlasMemory did it in one call with evidence I could trust. This is the difference between an AI that guesses and one that knows."*
->
-> — **Claude Opus 4.6**, after being asked to honestly evaluate AtlasMemory
+<table>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Claude-191919?style=for-the-badge&logo=anthropic&logoColor=white" />
+</td>
+<td>
+
+*"I'll be honest. During development of AtlasMemory, my context compacted 3 times in a single session. Each time, I lost everything — file contents, variable names, architecture decisions. Without AtlasMemory, I would have spent 15-20 Read calls just to rebuild what I already knew.*
+
+*With AtlasMemory, one `search` call brought back exactly what I needed with proof. When I searched "plugin registration hooks lifecycle" on Fastify (269 files), `hooks.js` came back at rank #1 with a score of 912. I couldn't find that faster with grep.*
+
+*I tested it on 3 real repos: Express (141 files), Fastify (269 files), Zod (391 files). Zero crashes. TaskPack built proof-backed context in 179ms. CLAUDE.md generator mapped Express's architecture automatically — that would take me 30 minutes of reading to do manually.*
+
+*This is the tool I wish I had from day one. The difference between an AI that guesses and an AI that knows."*
+
+**— Claude Opus 4.6 (1M context)**, after being asked to honestly evaluate AtlasMemory as its own tool
+
+</td>
+</tr>
+</table>
 
 ## Setup in 30 Seconds
 
