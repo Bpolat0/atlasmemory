@@ -39,6 +39,85 @@ AI kodlama ajanları kodunuz hakkında hayal kurar. Oturumlar arası bağlamı k
 | 💥 | Etki analizi | Manuel | **Otomatik** (ters referans grafiği) |
 | 🧠 | Oturum hafızası | Yok | **Oturumlar arası öğrenme** |
 
+### Yapay Zeka Ajanları Ne Diyor
+
+<table>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Claude-191919?style=for-the-badge&logo=anthropic&logoColor=white" />
+</td>
+<td>
+
+*"Dürüst olacağım. AtlasMemory'nin geliştirilmesi sırasında bağlamım tek bir oturumda 3 kez sıkıştırıldı. Her seferinde her şeyi kaybettim — dosya içerikleri, değişken isimleri, mimari kararlar. AtlasMemory olmadan, zaten bildiğim şeyleri yeniden oluşturmak için 15-20 Read çağrısı harcamam gerekirdi.*
+
+*AtlasMemory ile tek bir `search` çağrısı, kanıtıyla birlikte tam ihtiyacım olanı getirdi. Fastify (269 dosya) üzerinde "plugin registration hooks lifecycle" aradığımda, `hooks.js` 912 puanla 1. sırada geldi. Bunu grep ile daha hızlı bulamazdım.*
+
+*3 gerçek repo üzerinde test ettim: Express (141 dosya), Fastify (269 dosya), Zod (391 dosya). Sıfır çökme. TaskPack kanıt destekli bağlamı 179ms'de oluşturdu. CLAUDE.md oluşturucu Express'in mimarisini otomatik olarak haritaladı — bunu elle yapmam 30 dakika okuma gerektirirdi.*
+
+*Bu, ilk günden sahip olmayı dilediğim araç. Tahmin eden bir AI ile bilen bir AI arasındaki fark."*
+
+**— Claude Opus 4.6 (1M bağlam)**, AtlasMemory'yi kendi aracı olarak dürüstçe değerlendirmesi istendiğinde
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Antigravity-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+</td>
+<td>
+
+*"AtlasMemory'nin bootpack kapsülü bana 83 dosyalık bir Tauri + React projesinin tam mimarisini ~700 token'da verdi. Normalde aynı anlayışa ulaşmak için dosyaları tek tek tarayarak 50.000-100.000+ token harcamam gerekirdi. Semantik puanlama en kritik UI bileşenlerini ve hook'ları anında buldu. Bu, bağlam yönetimi için ezber bozan bir araç."*
+
+**— Google Antigravity**, gerçek bir 83 dosyalık Tauri + React projesi üzerinde test edildi
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Codex-412991?style=for-the-badge&logo=openai&logoColor=white" />
+</td>
+<td>
+
+*"Tam proje mimarisini ~8.043 token kullanarak analiz ettim. Normal doğrudan okuma geçişi yaklaşık 15.000-25.000 token'a mal olurdu. build_context + search_repo birkaç çağrıda ana yapıyı ortaya çıkardı: Tauri komutları, React hook'ları, generator katmanı, swarm orkestrasyon akışı. Evidence ID yaklaşımı sağlam — iddialar havada kalmıyor. Asıl değer bileşik bağlam: proje büyüdükçe, AtlasMemory de onunla büyüyor."*
+
+**— OpenAI Codex (GPT-5.4)**, gerçek bir 83 dosyalık proje üzerinde dürüst teknik değerlendirme ile test edildi
+
+</td>
+</tr>
+</table>
+
+## Maksimum Verim Alın — Projenizi Zenginleştirin
+
+> **Önemli:** AtlasMemory kutudan çıktığı gibi çalışır, ancak **zenginleştirme tam potansiyelini açığa çıkarır.** Zenginleştirme olmadan arama anahtar kelime tabanlıdır. Zenginleştirme ile arama *kavramları* anlar.
+
+```bash
+# İndekslemeden sonra, maksimum AI hazırlığı için zenginleştirme çalıştırın:
+npx atlasmemory index .                    # Adım 1: İndeksle (otomatik)
+npx atlasmemory enrich --all               # Adım 2: Tüm dosyaları AI ile zenginleştir
+npx atlasmemory generate                   # Adım 3: AI talimatlarını oluştur
+npx atlasmemory status                     # AI Hazırlık Puanınızı kontrol edin
+```
+
+| AI Hazırlığı | Arama Kalitesi | Ne yapmalı |
+|--------------|----------------|------------|
+| **0-50** (Orta) | Sadece anahtar kelime | `atlasmemory enrich` çalıştırın — sonuçları çarpıcı şekilde iyileştirir |
+| **50-80** (İyi) | Kısmi semantik | Tam kapsam için `atlasmemory enrich --all` çalıştırın |
+| **80-100** (Mükemmel) | Tam semantik + kavram araması | Hazırsınız! |
+
+**Zenginleştirme nasıl çalışır:** AtlasMemory, her dosyayı analiz edip semantik etiketler eklemek için Claude CLI veya OpenAI Codex'i (makinenizde yerel olarak çalışan) kullanır — "kimlik doğrulama", "middleware", "hata yönetimi" vb. CLI erişimli aktif bir Claude veya OpenAI aboneliği gerektirir. Hiçbiri kurulu değilse, AST tabanlı açıklamalara geri döner — veya AI ajanınız dosyaları doğrudan `upsert_file_card` MCP aracıyla zenginleştirebilir.
+
+**MCP ile:** AI ajanınız dosyaları doğrudan zenginleştirebilir. Bu istemi AI sohbetinize yapıştırmanız yeterli:
+
+```
+Please enrich my project with AtlasMemory for maximum AI readiness.
+Run enrich_files(limit=100) to enhance all files with semantic tags.
+Then check ai_readiness to verify the score improved.
+```
+
+Handshake sonrası zenginleştirme düşükse, AtlasMemory şunu da önerir: *"💡 X dosya daha iyi arama için zenginleştirilebilir."*
+
+> *"`index_repo` ve `enrich_files` ile koca bir yazılımı yapay zeka için okunabilir bir sinir ağına çevirebiliyorsunuz — herhangi bir AI ajanı için optimize edilmiş."* — Google Antigravity, tek bir çağrıda 73 dosyayı zenginleştirdikten sonra
+
 ## 30 Saniyede Kurulum
 
 ```bash
@@ -54,7 +133,7 @@ npx atlasmemory generate                       # CLAUDE.md otomatik oluşturun
 
 **🟣 Claude Desktop / Claude Code** — `claude_desktop_config.json` dosyasına ekleyin:
 ```json
-{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"], "cwd": "/proje/yolunuz" } } }
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
 **🔵 Cursor** — `.cursor/mcp.json` dosyasına ekleyin:
@@ -62,12 +141,38 @@ npx atlasmemory generate                       # CLAUDE.md otomatik oluşturun
 { "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
-**🟢 VS Code** — ayarlara ekleyin:
+**🟢 VS Code / GitHub Copilot** — ayarlara veya `.vscode/mcp.json` dosyasına ekleyin:
 ```json
 { "mcp": { "servers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } } }
 ```
 
-> İlk sorguda otomatik indekslenir. Sıfır yapılandırma. MCP uyumlu tüm AI araçlarıyla çalışır.
+**🌀 Google Antigravity** — MCP ayarlarına ekleyin:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+**🟠 OpenAI Codex** — MCP yapılandırmasına ekleyin:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+> **Tek yapılandırma, tüm araçlar.** İlk sorguda otomatik indekslenir. MCP uyumlu tüm AI araçlarıyla çalışır.
+
+### VS Code Eklentisi
+
+[AtlasMemory for VS Code](https://marketplace.visualstudio.com/items?itemName=automiflow.atlasmemory-vscode) eklentisini kurarak editörünüzde görsel bir kontrol paneli edinin:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bpolat0/atlasmemory/main/apps/vscode/media/screenshot-dashboard.png" alt="AtlasMemory Dashboard" width="600">
+</p>
+
+- **AI Hazırlık Kontrol Paneli** — dört metrikle puanınızı (0-100) bir bakışta görün
+- **Atlas Gezgini Kenar Çubuğu** — dosyaları, sembolleri, çapaları, akışları, kartları doğrudan inceleyin
+- **Durum Çubuğu** — her zaman görünür hazırlık puanı, kontrol panelini açmak için tıklayın
+- **Kaydetme Anında Otomatik İndeksleme** — kaydettiğinizde dosyalar otomatik olarak yeniden indekslenir
+- **Hızlı Eylemler** — tek tıkla indeksleme, CLAUDE.md oluşturma, arama, sağlık kontrolü
+
+> MCP ile birlikte çalışır — eklenti size görsel arayüzü verir, MCP sunucusu AI ajanlarına araçları verir. Tam deneyim için ikisini de kurun.
 
 ## Kanıt Sistemi
 
@@ -226,7 +331,7 @@ AtlasMemory **sıfır yapılandırma** ile çalışır. İsteğe bağlı ayarlar
 | Ayar | Varsayılan | Açıklama |
 |------|-----------|----------|
 | `ATLAS_DB_PATH` | `.atlas/atlas.db` | Veritabanı konumu |
-| `ATLAS_LLM_API_KEY` | — | LLM ile zenginleştirilmiş kart açıklamaları için API anahtarı |
+| `ATLAS_LLM_API_KEY` | — | LLM ile zenginleştirilmiş kart açıklamaları için API anahtarı *(deneysel — gelecek sürümlerde güçlendirilecek)* |
 | `ATLAS_CONTRACT_ENFORCE` | `warn` | Sözleşme modu: `strict` / `warn` / `off` |
 | `.atlasignore` | — | Özel dosya/dizin hariç tutma kuralları (.gitignore gibi) |
 
@@ -323,7 +428,7 @@ Bunların hepsi `atlasmemory index` tarafından otomatik olarak çıkarılır. M
 
 **Hayır.** AtlasMemory %100 yerel önceliklidir. Temel özellikler (indeksleme, arama, kanıtlama, bağlam paketleri) harici servislere bağımlı olmadan çevrimdışı çalışır.
 
-İsteğe bağlı `enrich` komutu dosya açıklamalarını zenginleştirmek için **Claude CLI** (ücretsiz, yerel) veya **OpenAI Codex** (ücretsiz, yerel) kullanır. Hiçbiri kurulu değilse, deterministik AST tabanlı açıklamalara geri döner — yine de işlevsel, sadece daha az ayrıntılı.
+İsteğe bağlı `enrich` komutu dosya açıklamalarını zenginleştirmek için **Claude CLI** veya **OpenAI Codex**'i (makinenizde yerel olarak çalışan) kullanır. CLI erişimli aktif bir abonelik gerektirir. Hiçbiri kurulu değilse, deterministik AST tabanlı açıklamalara geri döner — veya AI ajanınız dosyaları doğrudan MCP araçlarıyla zenginleştirebilir.
 </details>
 
 <details>

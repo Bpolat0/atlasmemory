@@ -60,7 +60,63 @@ AI coding agents hallucinate about your code. They lose context between sessions
 
 </td>
 </tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Antigravity-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+</td>
+<td>
+
+*"AtlasMemory's bootpack capsule gave me the full architecture of an 83-file Tauri + React project in ~700 tokens. Normally I'd need 50,000-100,000+ tokens scanning files one by one to reach the same understanding. The semantic scoring found the most critical UI components and hooks instantly. This is a game-changer for context management."*
+
+**— Google Antigravity**, tested on a real 83-file Tauri + React project
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Codex-412991?style=for-the-badge&logo=openai&logoColor=white" />
+</td>
+<td>
+
+*"I analyzed the full project architecture using ~8,043 tokens. A normal direct-read pass would cost roughly 15,000-25,000 tokens. build_context + search_repo surfaced the main structure in a few calls: Tauri commands, React hooks, generator layer, swarm orchestration flow. Evidence ID approach is solid — claims aren't left hanging. The real value is compounding context: as the project grows, AtlasMemory grows with it."*
+
+**— OpenAI Codex (GPT-5.4)**, tested on a real 83-file project with honest technical assessment
+
+</td>
+</tr>
 </table>
+
+## Get Maximum Value — Enrich Your Project
+
+> **Important:** AtlasMemory works out of the box, but **enrichment unlocks its full potential.** Without enrichment, search is keyword-based. With enrichment, search understands *concepts*.
+
+```bash
+# After indexing, run enrichment for maximum AI readiness:
+npx atlasmemory index .                    # Step 1: Index (automatic)
+npx atlasmemory enrich --all               # Step 2: AI-enhance all files
+npx atlasmemory generate                   # Step 3: Generate AI instructions
+npx atlasmemory status                     # Check your AI Readiness Score
+```
+
+| AI Readiness | Search Quality | What to do |
+|-------------|----------------|------------|
+| **0-50** (Fair) | Keyword only | Run `atlasmemory enrich` — dramatically improves results |
+| **50-80** (Good) | Partial semantic | Run `atlasmemory enrich --all` for full coverage |
+| **80-100** (Excellent) | Full semantic + concept search | You're ready! |
+
+**How enrichment works:** AtlasMemory uses Claude CLI or OpenAI Codex (running locally on your machine) to analyze each file and add semantic tags — "authentication", "middleware", "error handling", etc. Requires an active Claude or OpenAI subscription with CLI access. If neither is installed, it falls back to AST-based descriptions — or your AI agent can enrich files directly via the `upsert_file_card` MCP tool.
+
+**Via MCP:** Your AI agent can enrich files directly. Just paste this prompt into your AI chat:
+
+```
+Please enrich my project with AtlasMemory for maximum AI readiness.
+Run enrich_files(limit=100) to enhance all files with semantic tags.
+Then check ai_readiness to verify the score improved.
+```
+
+After handshake, if enrichment is low, AtlasMemory will also suggest: *"💡 X files can be enriched for better search."*
+
+> *"With just `index_repo` and `enrich_files`, you can turn an entire codebase into an AI-readable neural map — optimized for any AI agent."* — Google Antigravity, after enriching 73 files in a single call
 
 ## Setup in 30 Seconds
 
@@ -77,7 +133,7 @@ npx atlasmemory generate                       # Auto-generate CLAUDE.md
 
 **🟣 Claude Desktop / Claude Code** — add to `claude_desktop_config.json`:
 ```json
-{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"], "cwd": "/your/project/path" } } }
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
 **🔵 Cursor** — add to `.cursor/mcp.json`:
@@ -85,12 +141,22 @@ npx atlasmemory generate                       # Auto-generate CLAUDE.md
 { "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
-**🟢 VS Code** — add to settings:
+**🟢 VS Code / GitHub Copilot** — add to settings or `.vscode/mcp.json`:
 ```json
 { "mcp": { "servers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } } }
 ```
 
-> Auto-indexes on first query. Zero configuration. Works with any MCP-compatible AI tool.
+**🌀 Google Antigravity** — add to MCP settings:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+**🟠 OpenAI Codex** — add to MCP config:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+> **One config, all tools.** Auto-indexes on first query. Works with any MCP-compatible AI tool.
 
 ### VS Code Extension
 
@@ -265,7 +331,7 @@ AtlasMemory works with **zero configuration**. Optional settings:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `ATLAS_DB_PATH` | `.atlas/atlas.db` | Database location |
-| `ATLAS_LLM_API_KEY` | — | API key for LLM-enriched card descriptions |
+| `ATLAS_LLM_API_KEY` | — | API key for LLM-enriched card descriptions *(experimental — will be strengthened in future releases)* |
 | `ATLAS_CONTRACT_ENFORCE` | `warn` | Contract mode: `strict` / `warn` / `off` |
 | `.atlasignore` | — | Custom file/directory exclusion rules (like .gitignore) |
 
@@ -362,7 +428,7 @@ All of these are automatically extracted by `atlasmemory index`. No manual work 
 
 **No.** AtlasMemory is 100% local-first. Core features (indexing, search, proving, context packs) work offline without depending on external services.
 
-The optional `enrich` command uses **Claude CLI** (free, local) or **OpenAI Codex** (free, local) to enhance file descriptions. If neither is installed, it falls back to deterministic AST-based descriptions — still functional, just less detailed.
+The optional `enrich` command uses **Claude CLI** or **OpenAI Codex** (running locally) to enhance file descriptions. Requires an active subscription with CLI access. If neither is installed, it falls back to deterministic AST-based descriptions — or your AI agent can enrich files directly via MCP tools.
 </details>
 
 <details>

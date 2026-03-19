@@ -167,10 +167,16 @@ export function registerCliCommands(program: Command): void {
             console.log(`    Flows:        ${readiness.flowCoverage}%`);
             console.log(`    Evidence:     ${readiness.evidenceCoverage}%`);
 
-            // Next steps
+            // Next steps — prioritize based on readiness
             console.log('\n  Next steps:');
+            if (readiness.descriptionCoverage < 50) {
+                console.log('    atlasmemory enrich       ⚡ AI-enhance file descriptions (recommended!)');
+            }
             console.log('    atlasmemory generate     Generate CLAUDE.md for this project');
             console.log('    atlasmemory search "X"   Search your codebase');
+            if (readiness.descriptionCoverage >= 50) {
+                console.log('    atlasmemory enrich       AI-enhance file descriptions');
+            }
             console.log('    atlasmemory doctor       Check database health');
             console.log('');
         });

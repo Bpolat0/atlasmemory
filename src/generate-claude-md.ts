@@ -208,8 +208,81 @@ export function generateClaudeMd(store: Store, options: GenerateOptions): string
     return renderClaudeMd(data);
 }
 
+function renderAtlasInstructions(d?: ProjectData): string {
+    const lines: string[] = [];
+
+    lines.push(`## AtlasMemory — AI Agent Protocol (MANDATORY)`);
+    lines.push('');
+    lines.push(`> **This project is indexed by AtlasMemory.** You have access to proof-backed codebase memory.`);
+    lines.push(`> Follow these rules strictly — they exist to prevent hallucination and context waste.`);
+
+    // Project snapshot — wow effect
+    if (d) {
+        lines.push('');
+        lines.push(`### Project Snapshot`);
+        lines.push(`- **${d.projectName}**${d.projectDesc ? ` — ${d.projectDesc}` : ''}`);
+        lines.push(`- **AI Readiness:** ${d.readiness.overall}/100`);
+        lines.push(`- **${d.readiness.details.totalFiles} files** | ${d.readiness.details.symbolCount} symbols | ${d.readiness.details.anchorCount} evidence anchors`);
+        if (d.techStack.length > 0) lines.push(`- **Stack:** ${d.techStack.join(', ')}`);
+        lines.push('');
+        lines.push('#### Architecture');
+        lines.push('```');
+        for (const [dir, count] of d.topDirs.slice(0, 8)) {
+            const syms = d.dirSymbols.get(dir) || [];
+            const symStr = syms.length > 0 ? ` → ${syms.slice(0, 3).join(', ')}` : '';
+            lines.push(`${dir.padEnd(30)} ${String(count).padStart(3)} files${symStr}`);
+        }
+        lines.push('```');
+        lines.push('');
+        lines.push('#### Key Files');
+        for (const kf of d.keyFiles.slice(0, 8)) {
+            const purposeStr = kf.purpose ? ` — ${kf.purpose.substring(0, 80)}` : '';
+            lines.push(`- \`${kf.relPath}\`${purposeStr}`);
+        }
+    }
+
+    lines.push('');
+    lines.push(`### MUST DO:`);
+    lines.push(`1. **Start every session** with \`handshake\` to get project brief, memory, and risk map`);
+    lines.push(`2. **Before reading files**, call \`search_repo\` or \`build_context\` first — AtlasMemory already knows what each file does`);
+    lines.push(`3. **Never guess** about code structure — use \`search_repo\` to find the right files`);
+    lines.push(`4. **After making changes**, call \`log_decision(files, summary, why, type)\` to record what you did and why`);
+    lines.push(`5. **For complex tasks**, use \`build_context(mode="task", objective="...")\` to get proof-backed context within token budget`);
+    lines.push(`6. **Check impact** before modifying shared code — use \`analyze_impact(symbol_name)\` to see who depends on it`);
+    lines.push(`7. **Record constraints** with \`remember(type="constraint", text="...")\` so future sessions don't repeat mistakes`);
+    lines.push(`8. **Enrich files** when AI Readiness is below 80%:`);
+    lines.push(`   - **First choice:** call \`enrich_files(limit=100)\` — uses CLI backend automatically`);
+    lines.push(`   - **No CLI?** You can enrich manually: read a file, then call \`upsert_file_card\` with semantic tags and purpose`);
+    lines.push(`   - **After changes:** use \`refresh_cards_for_changed_files\` to find stale cards, then update them`);
+    lines.push(`   - High enrichment = dramatically better search quality for all future sessions`);
+    lines.push('');
+    lines.push(`### MUST NOT:`);
+    lines.push(`- Do NOT read files one-by-one with grep/cat when \`search_repo\` can find them instantly`);
+    lines.push(`- Do NOT guess file purposes — every file has an evidence-backed card accessible via AtlasMemory`);
+    lines.push(`- Do NOT ignore drift warnings — if AtlasMemory reports DRIFT, re-index before proceeding`);
+    lines.push(`- Do NOT skip \`log_decision\` after changes — future agents lose context without it`);
+    lines.push(`- Do NOT leave enrichment at 0% — this severely degrades search quality for future sessions`);
+    lines.push('');
+    lines.push(`### Quick Reference:`);
+    lines.push(`| Need | Tool | Example |`);
+    lines.push(`|------|------|---------|`);
+    lines.push(`| Find files | \`search_repo\` | \`search_repo("authentication middleware")\` |`);
+    lines.push(`| Get context | \`build_context\` | \`build_context(mode="task", objective="fix login bug")\` |`);
+    lines.push(`| Check impact | \`analyze_impact\` | \`analyze_impact(symbol_name="handleLogin")\` |`);
+    lines.push(`| Prove claims | \`prove\` | \`prove(claims="handleLogin validates credentials")\` |`);
+    lines.push(`| Record work | \`log_decision\` | \`log_decision(files=["src/auth.ts"], summary="...", why="...", type="fix")\` |`);
+    lines.push(`| Remember | \`remember\` | \`remember(type="constraint", text="Do not modify legacy API")\` |`);
+    lines.push(`| Enrich files | \`enrich_files\` | \`enrich_files(limit=10)\` or manually via \`upsert_file_card\` |`);
+
+    return lines.join('\n');
+}
+
 function renderClaudeMd(d: ProjectData): string {
     const s: string[] = [];
+
+    // AtlasMemory instructions at the very top (with project data for wow effect)
+    s.push(renderAtlasInstructions(d));
+    s.push('');
 
     s.push(`# ${d.projectName}`);
     if (d.projectDesc) s.push(`\n${d.projectDesc}`);
@@ -272,6 +345,10 @@ function renderClaudeMd(d: ProjectData): string {
 function renderCursorRules(d: ProjectData): string {
     const s: string[] = [];
 
+    // AtlasMemory instructions at the top
+    s.push(renderAtlasInstructions(d));
+    s.push('');
+
     s.push(`# ${d.projectName} — Cursor Rules`);
     if (d.projectDesc) s.push(`\n${d.projectDesc}`);
 
@@ -318,6 +395,10 @@ function renderCursorRules(d: ProjectData): string {
 
 function renderCopilotInstructions(d: ProjectData): string {
     const s: string[] = [];
+
+    // AtlasMemory instructions at the top
+    s.push(renderAtlasInstructions(d));
+    s.push('');
 
     s.push(`# ${d.projectName}`);
     if (d.projectDesc) s.push(`\n${d.projectDesc}`);
@@ -367,8 +448,19 @@ export function generateAll(store: Store, options: GenerateOptions): GenerateRes
     if (format === 'claude' || format === 'all') {
         const targetPath = path.join(options.rootDir, 'CLAUDE.md');
         if (!options.force && fs.existsSync(targetPath) && !isAutoGenerated(targetPath)) {
-            results.skipped = results.skipped || [];
-            results.skipped.push({ path: targetPath, reason: 'Hand-written file detected. Use --force to overwrite.' });
+            // Merge: prepend AtlasMemory instructions to existing hand-written file
+            const existing = fs.readFileSync(targetPath, 'utf-8');
+            const instructions = renderAtlasInstructions(data);
+            if (existing.includes('AtlasMemory — AI Agent Protocol')) {
+                // Already has instructions, skip
+                results.skipped = results.skipped || [];
+                results.skipped.push({ path: targetPath, reason: 'AtlasMemory instructions already present.' });
+            } else {
+                results.files.push({
+                    path: targetPath,
+                    content: instructions + '\n\n' + existing,
+                });
+            }
         } else {
             results.files.push({
                 path: targetPath,
@@ -380,8 +472,14 @@ export function generateAll(store: Store, options: GenerateOptions): GenerateRes
     if (format === 'cursor' || format === 'all') {
         const targetPath = path.join(options.rootDir, '.cursorrules');
         if (!options.force && fs.existsSync(targetPath) && !isAutoGenerated(targetPath)) {
-            results.skipped = results.skipped || [];
-            results.skipped.push({ path: targetPath, reason: 'Hand-written file detected. Use --force to overwrite.' });
+            const existing = fs.readFileSync(targetPath, 'utf-8');
+            const instructions = renderAtlasInstructions(data);
+            if (existing.includes('AtlasMemory — AI Agent Protocol')) {
+                results.skipped = results.skipped || [];
+                results.skipped.push({ path: targetPath, reason: 'AtlasMemory instructions already present.' });
+            } else {
+                results.files.push({ path: targetPath, content: instructions + '\n\n' + existing });
+            }
         } else {
             results.files.push({
                 path: targetPath,
@@ -394,8 +492,14 @@ export function generateAll(store: Store, options: GenerateOptions): GenerateRes
         const ghDir = path.join(options.rootDir, '.github');
         const targetPath = path.join(ghDir, 'copilot-instructions.md');
         if (!options.force && fs.existsSync(targetPath) && !isAutoGenerated(targetPath)) {
-            results.skipped = results.skipped || [];
-            results.skipped.push({ path: targetPath, reason: 'Hand-written file detected. Use --force to overwrite.' });
+            const existing = fs.readFileSync(targetPath, 'utf-8');
+            const instructions = renderAtlasInstructions(data);
+            if (existing.includes('AtlasMemory — AI Agent Protocol')) {
+                results.skipped = results.skipped || [];
+                results.skipped.push({ path: targetPath, reason: 'AtlasMemory instructions already present.' });
+            } else {
+                results.files.push({ path: targetPath, content: instructions + '\n\n' + existing });
+            }
         } else {
             results.files.push({
                 path: targetPath,

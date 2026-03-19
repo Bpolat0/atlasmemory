@@ -19,8 +19,33 @@ export interface McpServerOptions {
     dbPath?: string;
 }
 
-function initStore(dbPath?: string): Store {
-    const resolved = path.resolve(dbPath || process.env.ATLAS_DB_PATH || '.atlas/atlas.db');
+function isValidProjectDir(dir: string): boolean {
+    const lower = dir.toLowerCase().replace(/\\/g, '/');
+    // Reject system directories, root drives, and home dir (too broad to index)
+    if (lower.includes('windows') || lower.includes('system32')) return false;
+    if (lower === '/' || lower === 'c:/' || lower === 'c:\\') return false;
+    const home = (process.env.HOME || process.env.USERPROFILE || '').toLowerCase().replace(/\\/g, '/');
+    if (lower === home) return false;
+    // Must have .git or package.json to be a valid project
+    return fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'));
+}
+
+function resolveProjectRoot(): string {
+    const cwd = process.cwd();
+    const detected = detectProjectRoot(cwd);
+    if (isValidProjectDir(detected)) return detected;
+    // No valid project found — use a safe temp location for DB only (no auto-index)
+    const home = process.env.HOME || process.env.USERPROFILE || '.';
+    return path.join(home, '.atlasmemory');
+}
+
+function initStore(dbPath?: string, projectRoot?: string): Store {
+    const root = projectRoot || resolveProjectRoot();
+    const resolved = dbPath
+        ? path.resolve(dbPath)
+        : process.env.ATLAS_DB_PATH
+            ? path.resolve(process.env.ATLAS_DB_PATH)
+            : path.join(root, '.atlas', 'atlas.db');
     const dir = path.dirname(resolved);
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -29,11 +54,12 @@ function initStore(dbPath?: string): Store {
 }
 
 export async function startMcpServer(options: McpServerOptions = {}): Promise<void> {
-    const store = initStore(options.dbPath);
+    const projectRoot = resolveProjectRoot();
+    const store = initStore(options.dbPath, projectRoot);
     const searchService = new SearchService(store);
     const taskPackBuilder = new TaskPackBuilder(store);
     const bootPackBuilder = new BootPackBuilder(store);
-    const contractService = new ContextContractService(store, process.cwd());
+    const contractService = new ContextContractService(store, projectRoot);
     const flowGenerator = new FlowGenerator(store);
     const deterministicCardGenerator = new CardGenerator();
 
@@ -145,10 +171,17 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
         const empty = isDbEmpty(store);
         if (empty) {
-            // First run: full index
+            // First run: full index — but only if we're in a valid project directory
             indexPromise = (async () => {
                 try {
                     const rootDir = detectProjectRoot(process.cwd());
+                    if (!isValidProjectDir(rootDir)) {
+                        process.stderr.write(
+                            `[atlasmemory] No project detected in ${process.cwd()}. Use index_repo(path) to index a specific project.\n`
+                        );
+                        indexPromise = null;
+                        return;
+                    }
                     const result = await autoIndex(store, rootDir);
                     const head = getGitHead(rootDir);
                     if (head) store.setState('last_index_git_head', head);

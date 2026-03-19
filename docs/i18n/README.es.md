@@ -39,6 +39,85 @@ Los agentes de codificación con IA alucinan sobre tu código. Pierden el contex
 | 💥 | Análisis de impacto | Manual | **Automático** (grafo de referencias inversas) |
 | 🧠 | Memoria de sesión | Ninguna | **Aprendizaje entre sesiones** |
 
+### Lo Que Dicen los Agentes de IA
+
+<table>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Claude-191919?style=for-the-badge&logo=anthropic&logoColor=white" />
+</td>
+<td>
+
+*"Seré honesto. Durante el desarrollo de AtlasMemory, mi contexto se compactó 3 veces en una sola sesión. Cada vez, lo perdí todo — contenido de archivos, nombres de variables, decisiones de arquitectura. Sin AtlasMemory, habría gastado 15-20 llamadas Read solo para reconstruir lo que ya sabía.*
+
+*Con AtlasMemory, una sola llamada a `search` me devolvió exactamente lo que necesitaba con pruebas. Cuando busqué "plugin registration hooks lifecycle" en Fastify (269 archivos), `hooks.js` apareció en el puesto #1 con una puntuación de 912. No podría encontrar eso más rápido con grep.*
+
+*Lo probé en 3 repositorios reales: Express (141 archivos), Fastify (269 archivos), Zod (391 archivos). Cero fallos. TaskPack construyó contexto respaldado por evidencia en 179ms. El generador de CLAUDE.md mapeó la arquitectura de Express automáticamente — eso me habría tomado 30 minutos de lectura manual.*
+
+*Esta es la herramienta que desearía haber tenido desde el primer día. La diferencia entre una IA que adivina y una IA que sabe."*
+
+**— Claude Opus 4.6 (1M context)**, tras ser invitado a evaluar honestamente AtlasMemory como su propia herramienta
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Antigravity-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+</td>
+<td>
+
+*"La cápsula bootpack de AtlasMemory me dio la arquitectura completa de un proyecto Tauri + React de 83 archivos en ~700 tokens. Normalmente necesitaría 50,000-100,000+ tokens escaneando archivos uno por uno para alcanzar el mismo entendimiento. La puntuación semántica encontró los componentes de UI y hooks más críticos al instante. Esto es revolucionario para la gestión de contexto."*
+
+**— Google Antigravity**, probado en un proyecto real de 83 archivos Tauri + React
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Codex-412991?style=for-the-badge&logo=openai&logoColor=white" />
+</td>
+<td>
+
+*"Analicé la arquitectura completa del proyecto usando ~8,043 tokens. Un pase de lectura directa normal costaría aproximadamente 15,000-25,000 tokens. build_context + search_repo sacó a la luz la estructura principal en pocas llamadas: comandos Tauri, hooks de React, capa de generación, flujo de orquestación swarm. El enfoque de ID de evidencia es sólido — las afirmaciones no quedan sin respaldo. El verdadero valor es el contexto acumulativo: a medida que el proyecto crece, AtlasMemory crece con él."*
+
+**— OpenAI Codex (GPT-5.4)**, probado en un proyecto real de 83 archivos con evaluación técnica honesta
+
+</td>
+</tr>
+</table>
+
+## Obtén el Máximo Valor — Enriquece Tu Proyecto
+
+> **Importante:** AtlasMemory funciona de inmediato, pero **el enriquecimiento desbloquea todo su potencial.** Sin enriquecimiento, la búsqueda es por palabras clave. Con enriquecimiento, la búsqueda entiende *conceptos*.
+
+```bash
+# Después de indexar, ejecuta el enriquecimiento para máxima preparación de IA:
+npx atlasmemory index .                    # Paso 1: Indexar (automático)
+npx atlasmemory enrich --all               # Paso 2: Mejorar todos los archivos con IA
+npx atlasmemory generate                   # Paso 3: Generar instrucciones de IA
+npx atlasmemory status                     # Consulta tu Puntuación de Preparación para IA
+```
+
+| Preparación para IA | Calidad de Búsqueda | Qué hacer |
+|---------------------|---------------------|-----------|
+| **0-50** (Aceptable) | Solo por palabras clave | Ejecuta `atlasmemory enrich` — mejora drásticamente los resultados |
+| **50-80** (Buena) | Semántica parcial | Ejecuta `atlasmemory enrich --all` para cobertura completa |
+| **80-100** (Excelente) | Semántica completa + búsqueda conceptual | ¡Estás listo! |
+
+**Cómo funciona el enriquecimiento:** AtlasMemory usa Claude CLI u OpenAI Codex (ejecutándose localmente en tu máquina) para analizar cada archivo y agregar etiquetas semánticas — "autenticación", "middleware", "manejo de errores", etc. Requiere una suscripción activa a Claude u OpenAI con acceso CLI. Si ninguno está instalado, recurre a descripciones basadas en AST — o tu agente de IA puede enriquecer archivos directamente mediante la herramienta MCP `upsert_file_card`.
+
+**Mediante MCP:** Tu agente de IA puede enriquecer archivos directamente. Solo pega este prompt en tu chat de IA:
+
+```
+Please enrich my project with AtlasMemory for maximum AI readiness.
+Run enrich_files(limit=100) to enhance all files with semantic tags.
+Then check ai_readiness to verify the score improved.
+```
+
+Después del handshake, si el enriquecimiento es bajo, AtlasMemory también sugerirá: *"💡 X archivos pueden enriquecerse para mejorar la búsqueda."*
+
+> *"Con solo `index_repo` y `enrich_files`, puedes convertir toda una base de código en un mapa neuronal legible por IA — optimizado para cualquier agente de IA."* — Google Antigravity, después de enriquecer 73 archivos en una sola llamada
+
 ## Configuración en 30 Segundos
 
 ```bash
@@ -54,7 +133,7 @@ npx atlasmemory generate                       # Auto-genera CLAUDE.md
 
 **🟣 Claude Desktop / Claude Code** — agrega a `claude_desktop_config.json`:
 ```json
-{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"], "cwd": "/ruta/a/tu/proyecto" } } }
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
 **🔵 Cursor** — agrega a `.cursor/mcp.json`:
@@ -62,12 +141,38 @@ npx atlasmemory generate                       # Auto-genera CLAUDE.md
 { "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
-**🟢 VS Code** — agrega en la configuración:
+**🟢 VS Code / GitHub Copilot** — agrega en la configuración o `.vscode/mcp.json`:
 ```json
 { "mcp": { "servers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } } }
 ```
 
-> Se auto-indexa en la primera consulta. Cero configuración. Compatible con cualquier herramienta de IA que soporte MCP.
+**🌀 Google Antigravity** — agrega en la configuración MCP:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+**🟠 OpenAI Codex** — agrega en la configuración MCP:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+> **Una configuración, todas las herramientas.** Se auto-indexa en la primera consulta. Compatible con cualquier herramienta de IA que soporte MCP.
+
+### Extensión para VS Code
+
+Instala [AtlasMemory para VS Code](https://marketplace.visualstudio.com/items?itemName=automiflow.atlasmemory-vscode) para tener un panel visual directamente en tu editor:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bpolat0/atlasmemory/main/apps/vscode/media/screenshot-dashboard.png" alt="AtlasMemory Dashboard" width="600">
+</p>
+
+- **Panel de Preparación para IA** — consulta tu puntuación (0-100) con cuatro métricas de un vistazo
+- **Barra Lateral Atlas Explorer** — navega archivos, símbolos, anclas, flujos y tarjetas directamente
+- **Barra de Estado** — puntuación de preparación siempre visible, haz clic para abrir el panel
+- **Auto-Indexación al Guardar** — los archivos se re-indexan automáticamente al guardar
+- **Acciones Rápidas** — indexar, generar CLAUDE.md, buscar, chequeo de salud con un clic
+
+> Funciona junto con MCP — la extensión te da la interfaz visual, el servidor MCP da las herramientas a los agentes de IA. Instala ambos para la experiencia completa.
 
 ## El Sistema de Pruebas
 
@@ -226,7 +331,7 @@ AtlasMemory funciona con **cero configuración**. Opciones opcionales:
 | Configuración | Por defecto | Descripción |
 |---------------|-------------|-------------|
 | `ATLAS_DB_PATH` | `.atlas/atlas.db` | Ubicación de la base de datos |
-| `ATLAS_LLM_API_KEY` | — | Clave API para descripciones de tarjetas mejoradas con LLM |
+| `ATLAS_LLM_API_KEY` | — | Clave API para descripciones mejoradas con LLM *(experimental — se fortalecerá en futuras versiones)* |
 | `ATLAS_CONTRACT_ENFORCE` | `warn` | Modo de contrato: `strict` / `warn` / `off` |
 | `.atlasignore` | — | Exclusiones personalizadas de archivos/directorios (como .gitignore) |
 
@@ -323,7 +428,7 @@ Todos se extraen automáticamente con `atlasmemory index`. No se requiere trabaj
 
 **No.** AtlasMemory es 100% local-first. Las funciones principales (indexación, búsqueda, pruebas, paquetes de contexto) funcionan sin conexión, sin dependencias de servicios externos.
 
-El comando opcional `enrich` usa **Claude CLI** (gratis, local) u **OpenAI Codex** (gratis, local) para mejorar las descripciones de archivos. Si ninguno está instalado, recurre a descripciones determinísticas basadas en AST — sigue siendo funcional, solo menos detallado.
+El comando opcional `enrich` usa **Claude CLI** u **OpenAI Codex** (ejecutándose localmente en tu máquina) para mejorar las descripciones de archivos. Requiere una suscripción activa con acceso CLI. Si ninguno está instalado, recurre a descripciones determinísticas basadas en AST — o tu agente de IA puede enriquecer archivos directamente mediante las herramientas MCP.
 </details>
 
 <details>

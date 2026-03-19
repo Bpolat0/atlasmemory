@@ -39,6 +39,85 @@ AIコーディングエージェントはコードについてハルシネーシ
 | 💥 | 影響分析 | 手動 | **自動**（逆参照グラフ） |
 | 🧠 | セッションメモリ | なし | **セッション間学習** |
 
+### AIエージェントの声
+
+<table>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Claude-191919?style=for-the-badge&logo=anthropic&logoColor=white" />
+</td>
+<td>
+
+*「正直に言います。AtlasMemoryの開発中、1つのセッションでコンテキストが3回圧縮されました。そのたびに、ファイルの内容、変数名、アーキテクチャの決定 — すべてを失いました。AtlasMemoryがなければ、すでに知っていたことを再構築するだけで15-20回のRead呼び出しが必要だったでしょう。*
+
+*AtlasMemoryがあれば、1回の `search` 呼び出しで必要なものが証拠付きで正確に返ってきました。Fastify（269ファイル）で「plugin registration hooks lifecycle」と検索したとき、`hooks.js` がスコア912でランク1位に返ってきました。grepでもこれほど速く見つけられません。*
+
+*3つの実プロジェクトでテストしました: Express（141ファイル）、Fastify（269ファイル）、Zod（391ファイル）。クラッシュゼロ。TaskPackが179msで証拠付きコンテキストを構築。CLAUDE.mdジェネレーターがExpressのアーキテクチャを自動マッピング — 手動なら30分かかる作業です。*
+
+*これは初日から欲しかったツールです。推測するAIと、確信を持つAIの違いがここにあります。」*
+
+**— Claude Opus 4.6 (1M context)**、AtlasMemoryを自身のツールとして正直に評価するよう依頼された際の回答
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Antigravity-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+</td>
+<td>
+
+*「AtlasMemoryのbootpackカプセルが、83ファイルのTauri + Reactプロジェクトの全アーキテクチャを約700トークンで提供してくれました。通常なら、同じ理解に達するためにファイルを1つずつスキャンして50,000-100,000以上のトークンが必要です。セマンティックスコアリングが最も重要なUIコンポーネントとフックを即座に見つけ出しました。コンテキスト管理のゲームチェンジャーです。」*
+
+**— Google Antigravity**、実際の83ファイルTauri + Reactプロジェクトでテスト
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Codex-412991?style=for-the-badge&logo=openai&logoColor=white" />
+</td>
+<td>
+
+*「約8,043トークンでプロジェクト全体のアーキテクチャを分析しました。通常の直接読み取りでは15,000-25,000トークンほどかかるでしょう。build_context + search_repoが数回の呼び出しでメイン構造を浮き彫りにしました: Tauriコマンド、Reactフック、ジェネレーターレイヤー、スウォームオーケストレーションフロー。証拠IDアプローチは堅実です — 主張が宙に浮くことはありません。本当の価値は複利的なコンテキストです: プロジェクトが成長するにつれ、AtlasMemoryも一緒に成長します。」*
+
+**— OpenAI Codex (GPT-5.4)**、実際の83ファイルプロジェクトで正直な技術評価を実施
+
+</td>
+</tr>
+</table>
+
+## 最大限の価値を引き出す — プロジェクトをエンリッチ
+
+> **重要:** AtlasMemoryはそのままでも動作しますが、**エンリッチメントが真の力を解放します。** エンリッチメントなしでは検索はキーワードベースです。エンリッチメントありでは、検索が*概念*を理解します。
+
+```bash
+# インデックス後にエンリッチメントを実行して、AI対応を最大化:
+npx atlasmemory index .                    # ステップ1: インデックス（自動）
+npx atlasmemory enrich --all               # ステップ2: 全ファイルをAI強化
+npx atlasmemory generate                   # ステップ3: AI指示ファイルを生成
+npx atlasmemory status                     # AI対応スコアを確認
+```
+
+| AI対応度 | 検索品質 | 対処法 |
+|----------|---------|--------|
+| **0-50**（普通） | キーワードのみ | `atlasmemory enrich` を実行 — 結果が劇的に改善 |
+| **50-80**（良好） | 部分的セマンティック | `atlasmemory enrich --all` で全カバレッジ |
+| **80-100**（優秀） | フルセマンティック + 概念検索 | 準備完了！ |
+
+**エンリッチメントの仕組み:** AtlasMemoryはClaude CLIまたはOpenAI Codex（ローカルマシン上で動作）を使用して各ファイルを分析し、セマンティックタグ — 「認証」「ミドルウェア」「エラーハンドリング」など — を追加します。CLIアクセス付きのClaudeまたはOpenAIのアクティブなサブスクリプションが必要です。どちらもインストールされていない場合、ASTベースの説明にフォールバックします — またはAIエージェントが `upsert_file_card` MCPツールで直接ファイルをエンリッチできます。
+
+**MCP経由:** AIエージェントは直接ファイルをエンリッチできます。以下のプロンプトをAIチャットに貼り付けるだけです：
+
+```
+Please enrich my project with AtlasMemory for maximum AI readiness.
+Run enrich_files(limit=100) to enhance all files with semantic tags.
+Then check ai_readiness to verify the score improved.
+```
+
+ハンドシェイク後、エンリッチメントが低い場合、AtlasMemoryは次のように提案します：*「💡 X件のファイルをエンリッチすると検索品質が向上します。」*
+
+> *"`index_repo` と `enrich_files` だけで、コードベース全体をAIが読み取れるニューラルマップに変換できます — あらゆるAIエージェントに最適化。"* — Google Antigravity、1回の呼び出しで73ファイルをエンリッチ
+
 ## 30秒セットアップ
 
 ```bash
@@ -54,7 +133,7 @@ npx atlasmemory generate                       # CLAUDE.md を自動生成
 
 **🟣 Claude Desktop / Claude Code** — `claude_desktop_config.json` に追加:
 ```json
-{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"], "cwd": "/path/to/your/project" } } }
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
 **🔵 Cursor** — `.cursor/mcp.json` に追加:
@@ -62,12 +141,38 @@ npx atlasmemory generate                       # CLAUDE.md を自動生成
 { "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
-**🟢 VS Code** — 設定に追加:
+**🟢 VS Code / GitHub Copilot** — 設定または `.vscode/mcp.json` に追加:
 ```json
 { "mcp": { "servers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } } }
 ```
 
-> 初回クエリ時に自動インデックス。設定不要。MCP対応のあらゆるAIツールで動作します。
+**🌀 Google Antigravity** — MCP設定に追加:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+**🟠 OpenAI Codex** — MCP設定に追加:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+> **1つの設定で全ツール対応。** 初回クエリ時に自動インデックス。MCP対応のあらゆるAIツールで動作します。
+
+### VS Code拡張機能
+
+[AtlasMemory for VS Code](https://marketplace.visualstudio.com/items?itemName=automiflow.atlasmemory-vscode)をインストールすると、エディター内にビジュアルダッシュボードが表示されます:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bpolat0/atlasmemory/main/apps/vscode/media/screenshot-dashboard.png" alt="AtlasMemory Dashboard" width="600">
+</p>
+
+- **AI対応ダッシュボード** — 4つの指標でスコア（0-100）を一目で確認
+- **Atlasエクスプローラーサイドバー** — ファイル、シンボル、アンカー、フロー、カードを直接ブラウズ
+- **ステータスバー** — 常時表示の対応スコア、クリックでダッシュボードを開く
+- **保存時の自動インデックス** — 保存するとファイルが自動的に再インデックス
+- **クイックアクション** — ワンクリックでインデックス、CLAUDE.md生成、検索、ヘルスチェック
+
+> MCPと併用可能 — 拡張機能がビジュアルインターフェースを、MCPサーバーがAIエージェントにツールを提供します。両方インストールすると最高の体験になります。
 
 ## 証明システム
 
@@ -226,7 +331,7 @@ AtlasMemoryは**設定不要**で動作します。オプション:
 | 設定 | デフォルト | 説明 |
 |------|-----------|------|
 | `ATLAS_DB_PATH` | `.atlas/atlas.db` | データベースの場所 |
-| `ATLAS_LLM_API_KEY` | — | LLM強化カード説明用のAPIキー |
+| `ATLAS_LLM_API_KEY` | — | LLM強化カード説明用のAPIキー *(実験的 — 将来のリリースで強化予定)* |
 | `ATLAS_CONTRACT_ENFORCE` | `warn` | コントラクトモード: `strict` / `warn` / `off` |
 | `.atlasignore` | — | カスタムファイル/ディレクトリ除外（.gitignoreと同様） |
 
@@ -323,7 +428,7 @@ block-beta
 
 **いいえ。** AtlasMemoryは100%ローカルファーストです。コア機能（インデックス、検索、証明、コンテキストパック）はオフラインで動作し、外部サービスへの依存はゼロです。
 
-オプションの `enrich` コマンドは **Claude CLI**（無料、ローカル）または **OpenAI Codex**（無料、ローカル）を使用してファイル説明を強化します。どちらもインストールされていない場合、決定論的なASTベースの説明にフォールバックします — 機能は維持され、詳細度が若干低くなるだけです。
+オプションの `enrich` コマンドは **Claude CLI** または **OpenAI Codex**（ローカルで動作）を使用してファイル説明を強化します。CLIアクセス付きのアクティブなサブスクリプションが必要です。どちらもインストールされていない場合、決定論的なASTベースの説明にフォールバックします — またはAIエージェントがMCPツールで直接ファイルをエンリッチできます。
 </details>
 
 <details>

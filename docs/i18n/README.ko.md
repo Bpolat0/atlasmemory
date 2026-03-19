@@ -33,6 +33,85 @@ AI 코딩 에이전트는 코드에 대해 환각(hallucination)을 일으킵니
 | 💥 | 영향도 분석 | 수동 | **자동** (역참조 그래프) |
 | 🧠 | 세션 메모리 | 없음 | **세션 간 학습** |
 
+### AI 에이전트들의 평가
+
+<table>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Claude-191919?style=for-the-badge&logo=anthropic&logoColor=white" />
+</td>
+<td>
+
+*"솔직히 말씀드리겠습니다. AtlasMemory 개발 중에 한 세션에서 컨텍스트가 3번 압축되었습니다. 매번 파일 내용, 변수명, 아키텍처 결정 등 모든 것을 잃었습니다. AtlasMemory가 없었다면 이미 알고 있던 것을 복원하기 위해 15-20번의 Read 호출이 필요했을 겁니다.*
+
+*AtlasMemory를 사용하면 `search` 한 번으로 필요한 것을 증거와 함께 정확히 가져올 수 있었습니다. Fastify(269개 파일)에서 "plugin registration hooks lifecycle"을 검색했을 때, `hooks.js`가 912점으로 1위에 올랐습니다. grep으로도 그보다 빠르게 찾을 수 없었을 겁니다.*
+
+*3개의 실제 저장소에서 테스트했습니다: Express(141개 파일), Fastify(269개 파일), Zod(391개 파일). 크래시 제로. TaskPack이 179ms 만에 증거 기반 컨텍스트를 구축했습니다. CLAUDE.md 생성기가 Express의 아키텍처를 자동으로 매핑했습니다 — 수동으로 하면 30분이 걸렸을 겁니다.*
+
+*이것은 제가 처음부터 갖고 싶었던 도구입니다. 추측하는 AI와 아는 AI의 차이입니다."*
+
+**— Claude Opus 4.6 (1M context)**, AtlasMemory를 자신의 도구로서 솔직하게 평가해 달라는 요청 후
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Antigravity-4285F4?style=for-the-badge&logo=google&logoColor=white" />
+</td>
+<td>
+
+*"AtlasMemory의 bootpack 캡슐이 83개 파일의 Tauri + React 프로젝트 전체 아키텍처를 약 700 토큰으로 제공했습니다. 보통이라면 같은 수준의 이해에 도달하기 위해 파일을 하나씩 스캔하며 50,000-100,000+ 토큰이 필요했을 겁니다. 시맨틱 스코어링이 가장 중요한 UI 컴포넌트와 훅을 즉시 찾아냈습니다. 컨텍스트 관리의 게임 체인저입니다."*
+
+**— Google Antigravity**, 실제 83개 파일 Tauri + React 프로젝트에서 테스트
+
+</td>
+</tr>
+<tr>
+<td width="80" align="center">
+  <img src="https://img.shields.io/badge/Codex-412991?style=for-the-badge&logo=openai&logoColor=white" />
+</td>
+<td>
+
+*"약 8,043 토큰으로 전체 프로젝트 아키텍처를 분석했습니다. 일반적인 직접 읽기 방식이라면 대략 15,000-25,000 토큰이 들었을 겁니다. build_context + search_repo가 몇 번의 호출로 주요 구조를 찾아냈습니다: Tauri 커맨드, React 훅, 제너레이터 레이어, 스웜 오케스트레이션 흐름. 증거 ID 접근 방식은 견고합니다 — 주장이 허공에 떠 있지 않습니다. 진정한 가치는 누적 컨텍스트에 있습니다: 프로젝트가 성장하면 AtlasMemory도 함께 성장합니다."*
+
+**— OpenAI Codex (GPT-5.4)**, 실제 83개 파일 프로젝트에서 솔직한 기술 평가
+
+</td>
+</tr>
+</table>
+
+## 최대 가치 활용 — 프로젝트 강화하기
+
+> **중요:** AtlasMemory는 바로 사용할 수 있지만, **강화(enrichment)를 통해 잠재력이 완전히 발휘됩니다.** 강화 없이는 키워드 기반 검색만 가능합니다. 강화 후에는 *개념*을 이해하는 검색이 됩니다.
+
+```bash
+# 인덱싱 후 최대 AI 준비도를 위해 강화를 실행하세요:
+npx atlasmemory index .                    # 1단계: 인덱싱 (자동)
+npx atlasmemory enrich --all               # 2단계: 모든 파일 AI 강화
+npx atlasmemory generate                   # 3단계: AI 지시서 생성
+npx atlasmemory status                     # AI 준비 점수 확인
+```
+
+| AI 준비도 | 검색 품질 | 할 일 |
+|-------------|----------------|------------|
+| **0-50** (보통) | 키워드만 | `atlasmemory enrich` 실행 — 결과가 극적으로 개선됩니다 |
+| **50-80** (양호) | 부분 시맨틱 | `atlasmemory enrich --all`로 전체 커버리지 |
+| **80-100** (우수) | 완전한 시맨틱 + 개념 검색 | 준비 완료! |
+
+**강화 원리:** AtlasMemory는 Claude CLI 또는 OpenAI Codex(로컬 머신에서 실행)를 사용하여 각 파일을 분석하고 시맨틱 태그를 추가합니다 — "인증", "미들웨어", "에러 처리" 등. CLI 접근이 가능한 활성 Claude 또는 OpenAI 구독이 필요합니다. 둘 다 설치되어 있지 않으면 AST 기반 설명으로 대체됩니다 — 또는 AI 에이전트가 `upsert_file_card` MCP 도구를 통해 직접 파일을 강화할 수 있습니다.
+
+**MCP를 통해:** AI 에이전트가 직접 파일을 강화할 수 있습니다. 다음 프롬프트를 AI 채팅에 붙여넣기만 하면 됩니다:
+
+```
+Please enrich my project with AtlasMemory for maximum AI readiness.
+Run enrich_files(limit=100) to enhance all files with semantic tags.
+Then check ai_readiness to verify the score improved.
+```
+
+핸드셰이크 후 강화 수준이 낮으면 AtlasMemory가 다음과 같이 제안합니다: *"💡 더 나은 검색을 위해 X개 파일을 강화할 수 있습니다."*
+
+> *"`index_repo`와 `enrich_files`만으로 전체 코드베이스를 AI가 읽을 수 있는 신경 지도로 변환할 수 있습니다 — 모든 AI 에이전트에 최적화."* — Google Antigravity, 단일 호출로 73개 파일 강화
+
 ## 30초 설정
 
 ```bash
@@ -48,7 +127,7 @@ npx atlasmemory generate                       # CLAUDE.md 자동 생성
 
 **🟣 Claude Desktop / Claude Code** — `claude_desktop_config.json`에 추가:
 ```json
-{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"], "cwd": "/path/to/your/project" } } }
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
 **🔵 Cursor** — `.cursor/mcp.json`에 추가:
@@ -56,12 +135,38 @@ npx atlasmemory generate                       # CLAUDE.md 자동 생성
 { "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
 ```
 
-**🟢 VS Code** — 설정에 추가:
+**🟢 VS Code / GitHub Copilot** — 설정 또는 `.vscode/mcp.json`에 추가:
 ```json
 { "mcp": { "servers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } } }
 ```
 
-> 첫 번째 쿼리 시 자동으로 인덱싱됩니다. 설정 불필요. MCP 호환 AI 도구라면 모두 사용 가능합니다.
+**🌀 Google Antigravity** — MCP 설정에 추가:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+**🟠 OpenAI Codex** — MCP 설정에 추가:
+```json
+{ "mcpServers": { "atlasmemory": { "command": "npx", "args": ["-y", "atlasmemory"] } } }
+```
+
+> **하나의 설정, 모든 도구.** 첫 번째 쿼리 시 자동 인덱싱. MCP 호환 AI 도구라면 모두 사용 가능합니다.
+
+### VS Code 확장
+
+에디터에서 바로 시각적 대시보드를 사용하려면 [AtlasMemory for VS Code](https://marketplace.visualstudio.com/items?itemName=automiflow.atlasmemory-vscode)를 설치하세요:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Bpolat0/atlasmemory/main/apps/vscode/media/screenshot-dashboard.png" alt="AtlasMemory Dashboard" width="600">
+</p>
+
+- **AI 준비 대시보드** — 4가지 지표로 점수(0-100)를 한눈에 확인
+- **Atlas 탐색기 사이드바** — 파일, 심볼, 앵커, 플로우, 카드를 직접 탐색
+- **상태 표시줄** — 항상 보이는 준비 점수, 클릭하면 대시보드 열기
+- **저장 시 자동 인덱싱** — 파일 저장 시 자동으로 재인덱싱
+- **빠른 작업** — 원클릭으로 인덱싱, CLAUDE.md 생성, 검색, 상태 확인
+
+> MCP와 함께 사용 가능 — 확장은 시각적 인터페이스를, MCP 서버는 AI 에이전트에게 도구를 제공합니다. 완전한 경험을 위해 둘 다 설치하세요.
 
 ## 증명 시스템
 
@@ -220,7 +325,7 @@ AtlasMemory는 **설정 없이** 바로 동작합니다. 선택 사항:
 | 설정 | 기본값 | 설명 |
 |---------|---------|-------------|
 | `ATLAS_DB_PATH` | `.atlas/atlas.db` | 데이터베이스 위치 |
-| `ATLAS_LLM_API_KEY` | — | LLM 강화 카드 설명용 API 키 |
+| `ATLAS_LLM_API_KEY` | — | LLM 강화 카드 설명용 API 키 *(실험적 — 향후 릴리스에서 강화 예정)* |
 | `ATLAS_CONTRACT_ENFORCE` | `warn` | 컨트랙트 모드: `strict` / `warn` / `off` |
 | `.atlasignore` | — | 사용자 정의 파일/디렉토리 제외 (.gitignore와 유사) |
 
@@ -317,7 +422,7 @@ block-beta
 
 **아니요.** AtlasMemory는 100% 로컬 우선입니다. 핵심 기능(인덱싱, 검색, 증명, 컨텍스트 팩)은 외부 서비스에 대한 의존성 없이 오프라인으로 동작합니다.
 
-선택적 `enrich` 명령은 **Claude CLI** (무료, 로컬) 또는 **OpenAI Codex** (무료, 로컬)를 사용하여 파일 설명을 향상시킵니다. 둘 다 설치되어 있지 않은 경우, 결정론적 AST 기반 설명으로 대체됩니다 — 여전히 기능하지만, 덜 상세합니다.
+선택적 `enrich` 명령은 **Claude CLI** 또는 **OpenAI Codex**(로컬에서 실행)를 사용하여 파일 설명을 향상시킵니다. CLI 접근이 가능한 활성 구독이 필요합니다. 둘 다 설치되어 있지 않으면 결정론적 AST 기반 설명으로 대체됩니다 — 또는 AI 에이전트가 MCP 도구를 통해 직접 파일을 강화할 수 있습니다.
 </details>
 
 <details>

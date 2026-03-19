@@ -1,35 +1,65 @@
+## AtlasMemory — AI Agent Protocol (MANDATORY)
+
+> **This project is indexed by AtlasMemory.** You have access to proof-backed codebase memory.
+> Follow these rules strictly — they exist to prevent hallucination and context waste.
+
+### MUST DO:
+1. **Start every session** with `handshake` to get project brief, memory, and risk map
+2. **Before reading files**, call `search_repo` or `build_context` first — AtlasMemory already knows what each file does
+3. **Never guess** about code structure — use `search_repo` to find the right files
+4. **After making changes**, call `log_decision(files, summary, why, type)` to record what you did and why
+5. **For complex tasks**, use `build_context(mode="task", objective="...")` to get proof-backed context within token budget
+6. **Check impact** before modifying shared code — use `analyze_impact(symbol_name)` to see who depends on it
+7. **Record constraints** with `remember(type="constraint", text="...")` so future sessions don't repeat mistakes
+
+### MUST NOT:
+- Do NOT read files one-by-one with grep/cat when `search_repo` can find them instantly
+- Do NOT guess file purposes — every file has an evidence-backed card accessible via AtlasMemory
+- Do NOT ignore drift warnings — if AtlasMemory reports DRIFT, re-index before proceeding
+- Do NOT skip `log_decision` after changes — future agents lose context without it
+
+### Quick Reference:
+| Need | Tool | Example |
+|------|------|---------|
+| Find files | `search_repo` | `search_repo("authentication middleware")` |
+| Get context | `build_context` | `build_context(mode="task", objective="fix login bug")` |
+| Check impact | `analyze_impact` | `analyze_impact(symbol_name="handleLogin")` |
+| Prove claims | `prove` | `prove(claims="handleLogin validates credentials")` |
+| Record work | `log_decision` | `log_decision(files=["src/auth.ts"], summary="...", why="...", type="fix")` |
+| Remember | `remember` | `remember(type="constraint", text="Do not modify legacy API")` |
+
 # atlasmemory
 
 Proof-backed, drift-resistant AI memory for your codebase
 
 ## Architecture Overview
-- `packages/intelligence/` contains 10 files — key exports: BudgetTracker, setBudgetLimit, trackUsage
+- `packages/intelligence/` contains 21 files — key exports: BudgetTracker, setBudgetLimit, trackUsage
+- `packages/taskpack/` contains 12 files — key exports: PackOptions, DeltaOptions, SessionBootstrapOptions
 - `packages/summarizer/` contains 8 files — key exports: RefreshStats, AutoRefresher, findStaleFiles
-- `packages/taskpack/` contains 8 files — key exports: PackOptions, DeltaOptions, SessionBootstrapOptions
 - `apps/vscode/` contains 7 files — key exports: findNodeBinary, AtlasStatus, AtlasClient
-- `src/` contains 6 files — key exports: loadIgnorePatterns, shouldIgnore, AutoIndexOptions
-- `packages/indexer/` contains 5 files — key exports: Indexer, initParsers, getLanguageStatus
+- `packages/store/` contains 7 files — key exports: SCHEMA, safeJsonParse, Store
+- `src/` contains 6 files — key exports: EXCLUDED_PATTERNS, loadIgnorePatterns, shouldIgnore
+- `packages/indexer/` contains 5 files — key exports: Indexer, initParsers, wave2
+- `packages/retrieval/` contains 5 files — key exports: GraphNode, GraphService, buildGraph
 - `apps/eval/` contains 4 files — key exports: RepoConfig, SyntheticRepoGenerator, generate
 - `packages/core/` contains 4 files — key exports: JsonValue, sha256, canonicalJson
-- `packages/retrieval/` contains 4 files — key exports: GraphNode, GraphService, buildGraph
-- `packages/store/` contains 4 files — key exports: Store, expandIdentifiers, init
-- `./` contains 2 files — key exports: main
-- `apps/cli/` contains 1 files — key exports: getStore, walk, linkImports
+- `./` contains 3 files — key exports: main, card, resolveId
+- `apps/cli/` contains 1 files — key exports: safeParseInt, getStore, walk
 
 ## Key Files to Reference
-- `packages/store/src/store.ts`: Store: exports Store, constructor, expandIdentifiers +64 more (1 class, 66 me...
-- `packages/core/src/types.ts`: Types: exports Anchor, SymbolKind, CodeSymbol +36 more (5 types)
-- `packages/taskpack/src/bootpack.ts`: Bootpack: exports PackOptions, DeltaOptions, SessionBootstrapOptions +23 more...
-- `apps/eval/src/runner.ts`: Runner: exports EvalConfig, LatencySample, BootpackCheckResult +22 more (1 cl...
-- `packages/taskpack/src/proof.ts`: Proof: exports EvidencePolicy, ClaimInput, ProveClaimResult +19 more (2 class...
+- `packages/store/src/store.ts`: Store: exports safeJsonParse, Store, constructor +95 more (1 class, 81 method...
+- `packages/taskpack/src/bootpack.ts`: Bootpack: exports PackOptions, DeltaOptions, SessionBootstrapOptions +48 more...
+- `packages/taskpack/src/builder.ts`: Builder: exports TaskPackBuilder, constructor, build +31 more (1 class, 10 me...
+- `packages/taskpack/src/proof.ts`: Proof: exports EvidencePolicy, ClaimInput, ProveClaimResult +30 more (2 class...
+- `packages/core/src/types.ts`: Types: exports Anchor, SymbolKind, CodeSymbol +39 more (7 types)
+- `src/mcp-server.ts`: Mcp server: exports McpServerOptions, resolveProjectRoot, initStore +16 more ...
+- `apps/eval/src/runner.ts`: Runner: exports EvalConfig, LatencySample, BootpackCheckResult +39 more (1 cl...
 - `src/generate-claude-md.ts`: Generate claude md: exports GenerateFormat, isAutoGenerated, GenerateOptions ...
-- `apps/vscode/src/atlas-client.ts`: Atlas client: exports findNodeBinary, AtlasStatus, AtlasClient +11 more (1 cl...
-- `packages/intelligence/src/impact-analyzer.ts`: Impact analyzer: exports AnalyzeSymbolOpts, ImpactAnalyzer, constructor +10 m...
-- `packages/intelligence/src/conversation-memory.ts`: Conversation memory: exports ConversationMemory, constructor, recordSearch +9...
-- `packages/taskpack/src/contract.ts`: Contract: exports ContractEnforcementMode, EvaluateContractOptions, ContextCo...
+- `packages/intelligence/src/project-brief.ts`: Project brief: exports ProjectBrief, ProjectBriefOptions, estimateTokens +22 ...
+- `packages/intelligence/src/enrichment-coordinator.ts`: Enrichment coordinator: exports EnrichmentProgress, sleep, EnrichmentCoordina...
 
 ## Technology
-TypeScript (61), JavaScript (3), MCP SDK, SQLite (better-sqlite3), Commander.js, Tree-sitter, esbuild, ESLint, Prettier
+TypeScript (82), JavaScript (3), MCP SDK, SQLite (better-sqlite3), Commander.js, Tree-sitter, esbuild, ESLint, Prettier, Vitest
 
 ## Project Conventions
 - ESM modules ("type": "module")
@@ -41,7 +71,7 @@ TypeScript (61), JavaScript (3), MCP SDK, SQLite (better-sqlite3), Commander.js,
 ## Build & Test Commands
 ```bash
 build                # npm --workspaces run build
-test                 # npm --workspaces --if-present run test
+test                 # vitest run
 build:all            # npm run build && npm run build:bundle
 build:bundle         # node build.mjs
 eval                 # node apps/eval/dist/src/index.js run-all
