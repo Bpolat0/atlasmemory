@@ -49,4 +49,7 @@ if (process.stdin.isTTY || process.stdout.isTTY) {
     });
 }
 
-program.parse();
+program.parseAsync().catch((err: Error) => {
+    console.error(`Fatal: ${err.message}`);
+    process.exit(1);
+});
