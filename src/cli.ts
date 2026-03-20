@@ -396,7 +396,7 @@ export function registerCliCommands(program: Command): void {
     program.command('generate')
         .description('Auto-generate AI instruction files from indexed codebase')
         .option('-o, --output <path>', 'Output file path (overrides default for single format)')
-        .option('--format <type>', 'Output format: claude | cursor | copilot | all (default: claude)', 'claude')
+        .option('--format <type>', 'Output format: claude | cursor | copilot | windsurf | antigravity | all (default: claude)', 'claude')
         .option('--stdout', 'Print to stdout instead of writing file')
         .option('--force', 'Overwrite existing files even if hand-written')
         .action((options) => {
@@ -420,7 +420,8 @@ export function registerCliCommands(program: Command): void {
             }
 
             // Write files
-            const formatLabel = format === 'all' ? 'All Formats' : format === 'claude' ? 'CLAUDE.md' : format === 'cursor' ? '.cursorrules' : 'copilot-instructions.md';
+            const formatLabels: Record<string, string> = { all: 'All Formats', claude: 'CLAUDE.md', cursor: '.cursorrules', copilot: 'copilot-instructions.md', windsurf: '.windsurfrules', antigravity: 'AGENTS.md' };
+            const formatLabel = formatLabels[format] || format;
             console.log(`\nAtlasMemory - ${formatLabel} Generator\n`);
 
             for (const file of result.files) {

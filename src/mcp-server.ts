@@ -499,7 +499,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 inputSchema: {
                     type: 'object',
                     properties: {
-                        format: { type: 'string', enum: ['claude', 'cursor', 'copilot', 'all'], description: 'Output format (default: claude)' },
+                        format: { type: 'string', enum: ['claude', 'cursor', 'copilot', 'windsurf', 'antigravity', 'all'], description: 'Output format (default: claude)' },
                         stdout: { type: 'boolean', description: 'Return content instead of writing files (default: true)' },
                         output: { type: 'string', description: 'File path to write (single format only)' },
                         force: { type: 'boolean', description: 'Overwrite existing files even if hand-written (default: false)' },
@@ -1188,7 +1188,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 await ensureIndexed();
                 const { generateAll } = await import('./generate-claude-md.js');
                 const rootDir = (await import('./auto-index.js')).detectProjectRoot(process.cwd());
-                const format = (['claude', 'cursor', 'copilot', 'all'].includes(String(args.format)) ? args.format : 'claude') as string;
+                const format = (['claude', 'cursor', 'copilot', 'windsurf', 'antigravity', 'all'].includes(String(args.format)) ? args.format : 'claude') as string;
                 const force = args.force === true;
                 const result = generateAll(store, { rootDir, format: format as any, force });
 
