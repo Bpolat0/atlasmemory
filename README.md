@@ -98,15 +98,43 @@ npx atlasmemory generate                   # Step 3: Generate AI instructions
 npx atlasmemory status                     # Check your AI Readiness Score
 ```
 
+### Maximum Power Checklist
+
+> **Do all of these and AtlasMemory becomes a beast.** Each step unlocks more capability:
+
+| | Step | What it unlocks | Command |
+|---|------|----------------|---------|
+| ✅ | **Index your project** | Symbol extraction, anchors, basic search | `npx atlasmemory index .` |
+| ✅ | **Enrich files** | Semantic search, concept-level understanding | `npx atlasmemory enrich --all` |
+| ✅ | **Generate AI instructions** | AI agents auto-use AtlasMemory (5 formats) | `npx atlasmemory generate` |
+| ✅ | **Add MCP config** | Zero-config connection for your AI tool | See configs below |
+| ✅ | **Use `log_decision` after changes** | Cross-session memory, institutional knowledge | AI agent calls it automatically |
+| ✅ | **Use `remember_project` for milestones** | Project-level memory persists forever | AI agent calls it automatically |
+
 | AI Readiness | Search Quality | What to do |
 |-------------|----------------|------------|
 | **0-50** (Fair) | Keyword only | Run `atlasmemory enrich` — dramatically improves results |
 | **50-80** (Good) | Partial semantic | Run `atlasmemory enrich --all` for full coverage |
-| **80-100** (Excellent) | Full semantic + concept search | You're ready! |
+| **80-100** (Excellent) | Full semantic + concept search | You're at maximum power! 🚀 |
 
-**How enrichment works:** AtlasMemory uses Claude CLI or OpenAI Codex (running locally on your machine) to analyze each file and add semantic tags — "authentication", "middleware", "error handling", etc. Requires an active Claude or OpenAI subscription with CLI access. If neither is installed, it falls back to AST-based descriptions — or your AI agent can enrich files directly via the `upsert_file_card` MCP tool.
+### About Enrichment
 
-**Via MCP:** Your AI agent can enrich files directly. Just paste this prompt into your AI chat:
+**What it does:** Enrichment analyzes each file and adds semantic tags — "authentication", "middleware", "error handling", "database query", etc. Without enrichment, search is keyword-based. With enrichment, search understands *concepts* — you can search "how does authentication work?" and get the right files even if they don't contain the word "authentication".
+
+**How it works:** AtlasMemory uses Claude CLI or OpenAI Codex (running locally) to analyze files. Requires an active Claude or OpenAI subscription with CLI access.
+
+**Estimated enrichment time by project size:**
+
+| Project Size | Files | Enrichment Time | What happens |
+|---|---|---|---|
+| Small | ~50 files | ~2 minutes | Instant boost — search quality jumps to 80+ |
+| Medium | ~200 files | ~8 minutes | Full semantic coverage in one coffee break |
+| Large (Coolify-scale) | ~1400 files | ~45 minutes | Use `--batch 50` for controlled enrichment |
+| Monorepo (Next.js-scale) | ~4000+ files | ~2 hours | Spread across sessions: `enrich --batch 100` |
+
+> **💡 Tip:** Run `atlasmemory enrich --dry-run` first to see the token estimate before starting.
+
+**No CLI? No problem.** Your AI agent can enrich files directly via MCP. Just paste this into your AI chat:
 
 ```
 Please enrich my project with AtlasMemory for maximum AI readiness.
@@ -114,7 +142,7 @@ Run enrich_files(limit=100) to enhance all files with semantic tags.
 Then check ai_readiness to verify the score improved.
 ```
 
-After handshake, if enrichment is low, AtlasMemory will also suggest: *"💡 X files can be enriched for better search."*
+After handshake, if enrichment is low, AtlasMemory will suggest: *"💡 X files can be enriched for better search."*
 
 > *"With just `index_repo` and `enrich_files`, you can turn an entire codebase into an AI-readable neural map — optimized for any AI agent."* — Google Antigravity, after enriching 73 files in a single call
 
