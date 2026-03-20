@@ -46,11 +46,15 @@ const EXCLUDED_DIRS = new Set([
     'node_modules', '.git', '.atlas', 'dist', 'build',
     'coverage', 'out', '.cache', '.turbo', '.gemini',
     'vendor', '.vendor', 'bower_components',            // PHP/Ruby/JS deps
-    'public/build', 'public/assets', 'public/dist',    // Compiled frontend assets
+    'assets', 'static',                                  // Compiled/static assets
     '.next', '.nuxt', '.svelte-kit', '.output',         // Framework build outputs
     '__pycache__', '.pytest_cache', 'venv', '.venv',    // Python
     'target', 'bin', 'obj',                              // Rust/C#/Java build outputs
+    'min', 'chunks',                                     // Minified/chunked output dirs
 ]);
+
+// Path segments that indicate non-source directories (matched against relative path)
+const EXCLUDED_PATH_SEGMENTS = ['public/build', 'public/js', 'public/assets', 'public/dist', 'public/vendor', 'storage/framework'];
 
 const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/, /\.bundle\.[^./]+$/, /\.chunk\.[^./]+$/];
 const MAX_FILE_SIZE = 512 * 1024; // 512KB — skip generated/vendored/minified files
@@ -150,6 +154,10 @@ export async function autoIndex(
 
             if (entry.isDirectory()) {
                 if (EXCLUDED_DIRS.has(entry.name)) continue;
+
+                // Check path segments (e.g. public/js, public/build)
+                const relSegment = path.relative(rootDir, fullPath).replace(/\\/g, '/');
+                if (EXCLUDED_PATH_SEGMENTS.some(seg => relSegment.includes(seg))) continue;
 
                 let realDir: string;
                 try {

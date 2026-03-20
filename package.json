@@ -1,6 +1,6 @@
 {
     "name": "atlasmemory",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "Proof-backed, drift-resistant AI memory for your codebase",
     "type": "module",
     "bin": {
