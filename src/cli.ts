@@ -396,7 +396,7 @@ export function registerCliCommands(program: Command): void {
     program.command('generate')
         .description('Auto-generate AI instruction files from indexed codebase')
         .option('-o, --output <path>', 'Output file path (overrides default for single format)')
-        .option('--format <type>', 'Output format: claude | cursor | copilot | windsurf | antigravity | all (default: claude)', 'claude')
+        .option('--format <type>', 'Output format: claude | cursor | copilot | windsurf | antigravity | all (default: all)', 'all')
         .option('--stdout', 'Print to stdout instead of writing file')
         .option('--force', 'Overwrite existing files even if hand-written')
         .action((options) => {
