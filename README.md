@@ -134,6 +134,8 @@ npx atlasmemory status                     # Check your AI Readiness Score
 
 > **💡 Tip:** Run `atlasmemory enrich --dry-run` first to see the token estimate before starting.
 
+> **🔑 Don't worry — enrichment is a one-time cost.** You enrich your project once, and it's done. After that, only new or changed files need re-enrichment (a few seconds). Think of it like building an index — you do it once, then it stays up to date incrementally.
+
 **No CLI? No problem.** Your AI agent can enrich files directly via MCP. Just paste this into your AI chat:
 
 ```
