@@ -2,8 +2,8 @@
     "name": "atlasmemory-vscode",
     "displayName": "AtlasMemory",
     "description": "AI-powered code memory — proof-backed context, drift detection, and readiness scoring for your codebase",
-    "version": "0.1.0",
-    "publisher": "atlasmemory",
+    "version": "0.1.1",
+    "publisher": "Automiflow",
     "license": "GPL-3.0",
     "engines": {
         "vscode": "^1.85.0"
