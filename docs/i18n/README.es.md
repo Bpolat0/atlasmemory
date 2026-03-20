@@ -98,15 +98,45 @@ npx atlasmemory generate                   # Paso 3: Generar instrucciones de IA
 npx atlasmemory status                     # Consulta tu Puntuación de Preparación para IA
 ```
 
+### Lista de Verificación de Máxima Potencia
+
+> **Haz todo esto y AtlasMemory se vuelve imparable.** Cada paso desbloquea más capacidad:
+
+| | Paso | Lo que desbloquea | Comando |
+|---|------|-------------------|---------|
+| ✅ | **Indexa tu proyecto** | Extracción de símbolos, anclas, búsqueda básica | `npx atlasmemory index .` |
+| ✅ | **Enriquece los archivos** | Búsqueda semántica, comprensión a nivel de concepto | `npx atlasmemory enrich --all` |
+| ✅ | **Genera instrucciones de IA** | Los agentes de IA usan AtlasMemory automáticamente (5 formatos) | `npx atlasmemory generate` |
+| ✅ | **Agrega la configuración MCP** | Conexión sin configuración para tu herramienta de IA | Ver configuraciones abajo |
+| ✅ | **Usa `log_decision` después de cambios** | Memoria entre sesiones, conocimiento institucional | El agente de IA lo llama automáticamente |
+| ✅ | **Usa `remember_project` para hitos** | Memoria a nivel de proyecto que persiste para siempre | El agente de IA lo llama automáticamente |
+
 | Preparación para IA | Calidad de Búsqueda | Qué hacer |
 |---------------------|---------------------|-----------|
 | **0-50** (Aceptable) | Solo por palabras clave | Ejecuta `atlasmemory enrich` — mejora drásticamente los resultados |
 | **50-80** (Buena) | Semántica parcial | Ejecuta `atlasmemory enrich --all` para cobertura completa |
 | **80-100** (Excelente) | Semántica completa + búsqueda conceptual | ¡Estás listo! |
 
-**Cómo funciona el enriquecimiento:** AtlasMemory usa Claude CLI u OpenAI Codex (ejecutándose localmente en tu máquina) para analizar cada archivo y agregar etiquetas semánticas — "autenticación", "middleware", "manejo de errores", etc. Requiere una suscripción activa a Claude u OpenAI con acceso CLI. Si ninguno está instalado, recurre a descripciones basadas en AST — o tu agente de IA puede enriquecer archivos directamente mediante la herramienta MCP `upsert_file_card`.
+### Acerca del Enriquecimiento
 
-**Mediante MCP:** Tu agente de IA puede enriquecer archivos directamente. Solo pega este prompt en tu chat de IA:
+**Qué hace:** El enriquecimiento analiza cada archivo y agrega etiquetas semánticas — "autenticación", "middleware", "manejo de errores", "consulta de base de datos", etc. Sin enriquecimiento, la búsqueda es por palabras clave. Con enriquecimiento, la búsqueda entiende *conceptos* — puedes buscar "¿cómo funciona la autenticación?" y obtener los archivos correctos incluso si no contienen la palabra "autenticación".
+
+**Cómo funciona:** AtlasMemory usa Claude CLI u OpenAI Codex (ejecutándose localmente) para analizar archivos. Requiere una suscripción activa a Claude u OpenAI con acceso CLI.
+
+**Tiempo estimado de enriquecimiento por tamaño de proyecto:**
+
+| Tamaño del Proyecto | Archivos | Tiempo de Enriquecimiento | Qué sucede |
+|---|---|---|---|
+| Pequeño | ~50 archivos | ~2 minutos | Mejora instantánea — la calidad de búsqueda sube a 80+ |
+| Mediano | ~200 archivos | ~8 minutos | Cobertura semántica completa en una pausa para café |
+| Grande (escala Coolify) | ~1400 archivos | ~45 minutos | Usa `--batch 50` para enriquecimiento controlado |
+| Monorepo (escala Next.js) | ~4000+ archivos | ~2 horas | Distribuye entre sesiones: `enrich --batch 100` |
+
+> **💡 Consejo:** Ejecuta `atlasmemory enrich --dry-run` primero para ver la estimación de tokens antes de comenzar.
+
+> **🔑 No te preocupes — el enriquecimiento es un costo único.** Enriqueces tu proyecto una vez y listo. Después, solo los archivos nuevos o modificados necesitan re-enriquecimiento (unos segundos). Piénsalo como construir un índice — lo haces una vez y luego se mantiene actualizado incrementalmente.
+
+**¿Sin CLI? No hay problema.** Tu agente de IA puede enriquecer archivos directamente mediante MCP. Solo pega esto en tu chat de IA:
 
 ```
 Please enrich my project with AtlasMemory for maximum AI readiness.

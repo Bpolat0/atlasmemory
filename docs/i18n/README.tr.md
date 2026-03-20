@@ -98,15 +98,45 @@ npx atlasmemory generate                   # Adım 3: AI talimatlarını oluştu
 npx atlasmemory status                     # AI Hazırlık Puanınızı kontrol edin
 ```
 
+### Maksimum Güç Kontrol Listesi
+
+> **Bunların hepsini yapın ve AtlasMemory bir canavar olsun.** Her adım daha fazla yeteneği açar:
+
+| | Adım | Açılan yetenek | Komut |
+|---|------|----------------|-------|
+| ✅ | **Projenizi indeksleyin** | Sembol çıkarma, çapalar, temel arama | `npx atlasmemory index .` |
+| ✅ | **Dosyaları zenginleştirin** | Semantik arama, kavram düzeyinde anlama | `npx atlasmemory enrich --all` |
+| ✅ | **AI talimatlarını oluşturun** | AI ajanları AtlasMemory'yi otomatik kullanır (5 format) | `npx atlasmemory generate` |
+| ✅ | **MCP yapılandırmasını ekleyin** | AI aracınız için sıfır yapılandırma bağlantısı | Aşağıdaki yapılandırmalara bakın |
+| ✅ | **Değişikliklerden sonra `log_decision` kullanın** | Oturumlar arası hafıza, kurumsal bilgi | AI ajanı otomatik çağırır |
+| ✅ | **Kilometre taşları için `remember_project` kullanın** | Proje düzeyinde hafıza sonsuza dek kalır | AI ajanı otomatik çağırır |
+
 | AI Hazırlığı | Arama Kalitesi | Ne yapmalı |
 |--------------|----------------|------------|
 | **0-50** (Orta) | Sadece anahtar kelime | `atlasmemory enrich` çalıştırın — sonuçları çarpıcı şekilde iyileştirir |
 | **50-80** (İyi) | Kısmi semantik | Tam kapsam için `atlasmemory enrich --all` çalıştırın |
 | **80-100** (Mükemmel) | Tam semantik + kavram araması | Hazırsınız! |
 
-**Zenginleştirme nasıl çalışır:** AtlasMemory, her dosyayı analiz edip semantik etiketler eklemek için Claude CLI veya OpenAI Codex'i (makinenizde yerel olarak çalışan) kullanır — "kimlik doğrulama", "middleware", "hata yönetimi" vb. CLI erişimli aktif bir Claude veya OpenAI aboneliği gerektirir. Hiçbiri kurulu değilse, AST tabanlı açıklamalara geri döner — veya AI ajanınız dosyaları doğrudan `upsert_file_card` MCP aracıyla zenginleştirebilir.
+### Zenginleştirme Hakkında
 
-**MCP ile:** AI ajanınız dosyaları doğrudan zenginleştirebilir. Bu istemi AI sohbetinize yapıştırmanız yeterli:
+**Ne yapar:** Zenginleştirme her dosyayı analiz eder ve semantik etiketler ekler — "kimlik doğrulama", "middleware", "hata yönetimi", "veritabanı sorgusu" vb. Zenginleştirme olmadan arama anahtar kelime tabanlıdır. Zenginleştirme ile arama *kavramları* anlar — "kimlik doğrulama nasıl çalışır?" diye arayabilir ve "kimlik doğrulama" kelimesini içermeyen dosyalarda bile doğru sonuçları alabilirsiniz.
+
+**Nasıl çalışır:** AtlasMemory, dosyaları analiz etmek için Claude CLI veya OpenAI Codex'i (yerel olarak çalışan) kullanır. CLI erişimli aktif bir Claude veya OpenAI aboneliği gerektirir.
+
+**Proje boyutuna göre tahmini zenginleştirme süresi:**
+
+| Proje Boyutu | Dosyalar | Zenginleştirme Süresi | Ne olur |
+|---|---|---|---|
+| Küçük | ~50 dosya | ~2 dakika | Anında destek — arama kalitesi 80+'e yükselir |
+| Orta | ~200 dosya | ~8 dakika | Bir kahve molasında tam semantik kapsam |
+| Büyük (Coolify ölçeği) | ~1400 dosya | ~45 dakika | Kontrollü zenginleştirme için `--batch 50` kullanın |
+| Monorepo (Next.js ölçeği) | ~4000+ dosya | ~2 saat | Oturumlara yayın: `enrich --batch 100` |
+
+> **💡 İpucu:** Başlamadan önce token tahminini görmek için `atlasmemory enrich --dry-run` çalıştırın.
+
+> **🔑 Endişelenmeyin — zenginleştirme tek seferlik bir maliyettir.** Projenizi bir kez zenginleştirirsiniz ve biter. Bundan sonra sadece yeni veya değişen dosyalar yeniden zenginleştirme gerektirir (birkaç saniye). Bir indeks oluşturmak gibi düşünün — bir kez yaparsınız, sonra artımlı olarak güncel kalır.
+
+**CLI yok mu? Sorun değil.** AI ajanınız dosyaları doğrudan MCP aracılığıyla zenginleştirebilir. Bunu AI sohbetinize yapıştırmanız yeterli:
 
 ```
 Please enrich my project with AtlasMemory for maximum AI readiness.
