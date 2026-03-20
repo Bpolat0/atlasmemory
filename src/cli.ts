@@ -650,6 +650,13 @@ export function registerCliCommands(program: Command): void {
                 const remaining = coverage.total - coverage.enriched;
                 const batch = options.all ? remaining : Math.min(safeParseInt(options.batch, 10), remaining);
                 console.log(`  Would enrich: ${batch} files`);
+                const estimatedTokens = batch * 1200;
+                if (batch > 100) {
+                    console.log(`\n  \u26a0\ufe0f  Token estimate: ~${(estimatedTokens / 1000).toFixed(0)}K tokens (~$${(estimatedTokens * 0.000003).toFixed(2)} with Claude API)`);
+                    console.log(`  \ud83d\udca1 Tip: For large projects, enrich in batches: atlasmemory enrich --batch 50`);
+                } else if (batch > 0) {
+                    console.log(`\n  \ud83d\udcb0 Token estimate: ~${(estimatedTokens / 1000).toFixed(0)}K tokens`);
+                }
                 if (!backend) {
                     console.log('\n  No AI backend available:');
                     console.log('    - Install Claude CLI (free): https://docs.anthropic.com/claude-code');
@@ -658,10 +665,17 @@ export function registerCliCommands(program: Command): void {
                 return;
             }
 
-            const limit = options.all ? coverage.total : safeParseInt(options.batch, 10);
+            const remaining = coverage.total - coverage.enriched;
+            const limit = options.all ? remaining : safeParseInt(options.batch, 10);
             const forcedBackend = options.backend === 'cli' ? 'claude-cli'
                 : options.backend === 'api' ? 'anthropic-sdk'
                 : undefined;
+
+            if (limit > 500) {
+                const est = (limit * 1200 / 1000).toFixed(0);
+                console.log(`\n  \u26a0\ufe0f  Enriching ${limit} files will use ~${est}K tokens.`);
+                console.log(`  \ud83d\udca1 Tip: Use --batch 50 for smaller batches.\n`);
+            }
 
             console.log(`\nAtlasMemory \u2014 Enriching with ${backend?.name || 'deterministic'} backend...\n`);
 
