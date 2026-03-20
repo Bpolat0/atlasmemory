@@ -45,10 +45,16 @@ export function getGitChangedFiles(cwd: string, sinceHead: string): { added: str
 const EXCLUDED_DIRS = new Set([
     'node_modules', '.git', '.atlas', 'dist', 'build',
     'coverage', 'out', '.cache', '.turbo', '.gemini',
+    'vendor', '.vendor', 'bower_components',            // PHP/Ruby/JS deps
+    'public/build', 'public/assets', 'public/dist',    // Compiled frontend assets
+    '.next', '.nuxt', '.svelte-kit', '.output',         // Framework build outputs
+    '__pycache__', '.pytest_cache', 'venv', '.venv',    // Python
+    'target', 'bin', 'obj',                              // Rust/C#/Java build outputs
 ]);
 
-const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/];
-const MAX_FILE_SIZE = 1024 * 1024; // 1MB — skip generated/vendored files
+const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/, /\.bundle\.[^./]+$/, /\.chunk\.[^./]+$/];
+const MAX_FILE_SIZE = 512 * 1024; // 512KB — skip generated/vendored/minified files
+const MAX_LINE_LENGTH = 2000; // Lines > 2000 chars = likely minified, skip file
 const CODE_EXTENSIONS = new Set([
     '.ts', '.tsx', '.js', '.jsx', '.py',           // TS/JS/Python
     '.go', '.rs', '.java', '.cs',                   // Go/Rust/Java/C#
@@ -200,6 +206,14 @@ export async function autoIndex(
             try {
                 content = fs.readFileSync(fullPath, 'utf-8');
             } catch { skipped++; continue; }
+
+            // Skip minified files: if any of the first 3 lines exceeds MAX_LINE_LENGTH
+            const firstLines = content.slice(0, 10000).split('\n', 3);
+            if (firstLines.some(line => line.length > MAX_LINE_LENGTH)) {
+                skippedLarge++;
+                continue;
+            }
+
             const contentHash = crypto.createHash('sha256').update(content).digest('hex');
 
             if (incremental && existingHashes.get(relativePath) === contentHash) {
@@ -295,13 +309,17 @@ export async function incrementalReindex(
         if (!CODE_EXTENSIONS.has(ext)) continue;
         if (EXCLUDED_PATTERNS.some(p => p.test(path.basename(absPath)))) continue;
 
-        let content: string;
-        try { content = fs.readFileSync(absPath, 'utf-8'); } catch { continue; }
-
         try {
             const stat = fs.statSync(absPath);
             if (stat.size > MAX_FILE_SIZE) continue;
         } catch { continue; }
+
+        let content: string;
+        try { content = fs.readFileSync(absPath, 'utf-8'); } catch { continue; }
+
+        // Skip minified files
+        const firstLines = content.slice(0, 10000).split('\n', 3);
+        if (firstLines.some(line => line.length > MAX_LINE_LENGTH)) continue;
 
         const contentHash = crypto.createHash('sha256').update(content).digest('hex');
         const langMap: Record<string, string> = {

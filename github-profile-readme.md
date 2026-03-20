@@ -133,6 +133,14 @@
 <table>
   <tr>
     <td align="center" width="300">
+      <a href="https://github.com/Bpolat0/atlasmemory">
+        <img src="https://github-readme-stats.vercel.app/api/pin/?username=Bpolat0&repo=atlasmemory&theme=tokyonight&hide_border=true" />
+      </a>
+      <br>
+      <b>🧠 AtlasMemory</b><br>
+      <sub>Evidence-backed AI memory for your codebase.<br>11 languages, 28 MCP tools, zero config.</sub>
+    </td>
+    <td align="center" width="300">
       <a href="https://github.com/Bpolat0/razer-mic-fix">
         <img src="https://github-readme-stats.vercel.app/api/pin/?username=Bpolat0&repo=razer-mic-fix&theme=tokyonight&hide_border=true" />
       </a>
@@ -140,16 +148,10 @@
       <b>🎙️ Razer Mic Fix</b><br>
       <sub>Community tool to fix Razer microphone volume drops.<br>Just download and run!</sub>
     </td>
-    <td align="center" width="300">
-      <br><br>
-      <img src="https://img.shields.io/badge/🧠-000?style=for-the-badge" height="60" /><br><br>
-      <b>??? — Coming Soon</b><br>
-      <sub>A revolutionary open source project.<br>Follow to be the first to know.</sub>
-    </td>
   </tr>
 </table>
 
-### 🔮 Coming Soon — 9 Open Source Projects
+### 🔮 Coming Soon — 9 More Open Source Projects
 
 > *Building in stealth. Real projects, actively in development. Follow me to catch each launch.*
 
