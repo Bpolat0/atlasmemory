@@ -51,10 +51,21 @@ const EXCLUDED_DIRS = new Set([
     '__pycache__', '.pytest_cache', 'venv', '.venv',    // Python
     'target', 'bin', 'obj',                              // Rust/C#/Java build outputs
     'min', 'chunks',                                     // Minified/chunked output dirs
+    '__tests__', '__mocks__', '__fixtures__',            // Test directories
+    'test', 'tests', 'spec', 'specs',                   // Test directories (common names)
+    'fixtures', 'fixture', 'testdata', 'test-data',     // Test data
+    'e2e', 'cypress', 'playwright',                     // E2E test dirs
+    'bench', 'benchmark', 'benchmarks',                 // Benchmark dirs
+    'examples', 'example',                              // Example dirs (often large)
+    'docs', 'doc', 'documentation',                     // Documentation
+    '.conductor', '.claude-plugin', '.devcontainer',    // Tool-specific dirs
 ]);
 
 // Path segments that indicate non-source directories (matched against relative path)
 const EXCLUDED_PATH_SEGMENTS = ['public/build', 'public/js', 'public/assets', 'public/dist', 'public/vendor', 'storage/framework'];
+
+// Hard limit: skip repos with too many source files to prevent OOM
+const MAX_TOTAL_FILES = 5000;
 
 const EXCLUDED_PATTERNS = [/\.d\.ts$/, /\.map$/, /\.min\.[^./]+$/, /\.bundle\.[^./]+$/, /\.chunk\.[^./]+$/];
 const MAX_FILE_SIZE = 512 * 1024; // 512KB — skip generated/vendored/minified files
@@ -199,6 +210,10 @@ export async function autoIndex(
                 const relPath2 = path.relative(rootDir, fullPath).replace(/\\/g, '/');
                 filePaths.push({ abs: fullPath, rel: relPath2 });
                 if (maxFiles > 0 && filePaths.length >= maxFiles) return;
+                if (filePaths.length >= MAX_TOTAL_FILES) {
+                    process.stderr.write(`[atlasmemory] Warning: file limit reached (${MAX_TOTAL_FILES}). Use .atlasignore to exclude directories.\n`);
+                    return;
+                }
             }
         }
     }
