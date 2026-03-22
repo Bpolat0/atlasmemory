@@ -54,12 +54,24 @@ function initStore(dbPath?: string, projectRoot?: string): Store {
 }
 
 export async function startMcpServer(options: McpServerOptions = {}): Promise<void> {
-    const projectRoot = resolveProjectRoot();
-    const store = initStore(options.dbPath, projectRoot);
-    const searchService = new SearchService(store);
-    const taskPackBuilder = new TaskPackBuilder(store);
-    const bootPackBuilder = new BootPackBuilder(store);
-    const contractService = new ContextContractService(store, projectRoot);
+    let currentProjectRoot = resolveProjectRoot();
+    let store = initStore(options.dbPath, currentProjectRoot);
+    let searchService = new SearchService(store);
+    let taskPackBuilder = new TaskPackBuilder(store);
+    let bootPackBuilder = new BootPackBuilder(store);
+    let contractService = new ContextContractService(store, currentProjectRoot);
+
+    function switchToProject(projectPath: string) {
+        const newRoot = detectProjectRoot(projectPath);
+        if (newRoot === currentProjectRoot) return;
+        currentProjectRoot = newRoot;
+        store = initStore(undefined, newRoot);
+        searchService = new SearchService(store);
+        taskPackBuilder = new TaskPackBuilder(store);
+        bootPackBuilder = new BootPackBuilder(store);
+        contractService = new ContextContractService(store, newRoot);
+        process.stderr.write(`[atlasmemory] Switched to project: ${newRoot}\n`);
+    }
     const flowGenerator = new FlowGenerator(store);
     const deterministicCardGenerator = new CardGenerator();
 
@@ -711,7 +723,8 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             }
 
             case 'index_repo': {
-                const repoPath = String(args.path);
+                const repoPath = String(args.path || currentProjectRoot);
+                switchToProject(repoPath);
                 const result = await autoIndex(store, repoPath);
                 reverseRefsBuilt = false;
                 codeHealthAnalyzed = false;
