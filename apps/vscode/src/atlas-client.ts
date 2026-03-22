@@ -84,21 +84,20 @@ export class AtlasClient {
             return localBin;
         }
 
-        // Fall back to global — warn user if first attempt
-        if (!this.binaryPath) {
-            vscode.window.showWarningMessage(
-                'AtlasMemory binary not found locally. Install with: npm install -g atlasmemory',
-                'Install Now'
-            ).then(choice => {
-                if (choice === 'Install Now') {
-                    const terminal = vscode.window.createTerminal('AtlasMemory Install');
-                    terminal.sendText('npm install -g atlasmemory');
-                    terminal.show();
-                }
-            });
-        }
-        this.binaryPath = 'atlasmemory';
-        return 'atlasmemory';
+        // Try global install
+        const isWindows = process.platform === 'win32';
+        try {
+            const whichCmd = isWindows ? 'where' : 'which';
+            const globalPath = execFileSync(whichCmd, ['atlasmemory'], { encoding: 'utf-8', timeout: 5000 }).trim().split('\n')[0].trim();
+            if (globalPath && fs.existsSync(globalPath)) {
+                this.binaryPath = globalPath;
+                return globalPath;
+            }
+        } catch { }
+
+        // Fall back to npx — always works if npm is installed
+        this.binaryPath = 'npx:atlasmemory';
+        return 'npx:atlasmemory';
     }
 
     private run(args: string[]): Promise<string> {
@@ -107,7 +106,10 @@ export class AtlasClient {
             let cmd: string;
             let cmdArgs: string[];
 
-            if (binary.endsWith('.js')) {
+            if (binary === 'npx:atlasmemory') {
+                cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+                cmdArgs = ['-y', 'atlasmemory', ...args];
+            } else if (binary.endsWith('.js')) {
                 cmd = NODE_BINARY;
                 cmdArgs = [binary, ...args];
             } else {
