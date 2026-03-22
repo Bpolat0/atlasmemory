@@ -84,17 +84,6 @@ export class AtlasClient {
             return localBin;
         }
 
-        // Try global install
-        const isWindows = process.platform === 'win32';
-        try {
-            const whichCmd = isWindows ? 'where' : 'which';
-            const globalPath = execFileSync(whichCmd, ['atlasmemory'], { encoding: 'utf-8', timeout: 5000 }).trim().split('\n')[0].trim();
-            if (globalPath && fs.existsSync(globalPath)) {
-                this.binaryPath = globalPath;
-                return globalPath;
-            }
-        } catch { }
-
         // Fall back to npx — always works if npm is installed
         this.binaryPath = 'npx:atlasmemory';
         return 'npx:atlasmemory';
