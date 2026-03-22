@@ -110,6 +110,7 @@ export class AtlasClient {
                 cwd: this.workspaceRoot,
                 timeout: 60000,
                 env: { ...process.env, FORCE_COLOR: '0' },
+                shell: process.platform === 'win32',
             }, (error, stdout, stderr) => {
                 if (error) {
                     reject(new Error(stderr || error.message));
