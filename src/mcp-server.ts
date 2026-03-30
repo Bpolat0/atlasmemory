@@ -70,6 +70,18 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         taskPackBuilder = new TaskPackBuilder(store);
         bootPackBuilder = new BootPackBuilder(store);
         contractService = new ContextContractService(store, newRoot);
+        // Rebuild all intelligence services with new store
+        impactAnalyzer = new ImpactAnalyzer(store);
+        prefetchEngine = new PrefetchEngine(store, new GraphService(store));
+        diffEnricher = new DiffEnricher(store);
+        budgetTracker = new BudgetTracker(store);
+        conversationMemory = new ConversationMemory(store);
+        sessionLearner = new SessionLearner(store);
+        codeHealthAnalyzer = new CodeHealthAnalyzer(store, newRoot);
+        enrichmentCoordinator = new EnrichmentCoordinator(store);
+        projectBriefBuilder = new ProjectBriefBuilder(store, codeHealthAnalyzer, sessionLearner, enrichmentCoordinator);
+        reverseRefsBuilt = false;
+        codeHealthAnalyzed = false;
         process.stderr.write(`[atlasmemory] Switched to project: ${newRoot}\n`);
     }
     const flowGenerator = new FlowGenerator(store);
@@ -158,15 +170,15 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
     // Phase 19: Intelligence Layer
     const graphService = new GraphService(store);
-    const impactAnalyzer = new ImpactAnalyzer(store);
-    const prefetchEngine = new PrefetchEngine(store, graphService);
-    const diffEnricher = new DiffEnricher(store);
-    const budgetTracker = new BudgetTracker(store);
-    const conversationMemory = new ConversationMemory(store);
-    const sessionLearner = new SessionLearner(store);
+    let impactAnalyzer = new ImpactAnalyzer(store);
+    let prefetchEngine = new PrefetchEngine(store, graphService);
+    let diffEnricher = new DiffEnricher(store);
+    let budgetTracker = new BudgetTracker(store);
+    let conversationMemory = new ConversationMemory(store);
+    let sessionLearner = new SessionLearner(store);
 
     // Phase 20: Code Health
-    const codeHealthAnalyzer = new CodeHealthAnalyzer(store, process.cwd());
+    let codeHealthAnalyzer = new CodeHealthAnalyzer(store, process.cwd());
     let codeHealthAnalyzed = false;
 
     let reverseRefsBuilt = false;
@@ -253,8 +265,8 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
     );
 
     // Phase 22: EnrichmentCoordinator with auto-detected backends (CLI free → API paid → deterministic)
-    const enrichmentCoordinator = new EnrichmentCoordinator(store);
-    const projectBriefBuilder = new ProjectBriefBuilder(store, codeHealthAnalyzer, sessionLearner, enrichmentCoordinator);
+    let enrichmentCoordinator = new EnrichmentCoordinator(store);
+    let projectBriefBuilder = new ProjectBriefBuilder(store, codeHealthAnalyzer, sessionLearner, enrichmentCoordinator);
     const proactiveBuilder = new ProactiveResponseBuilder({
         store, codeHealth: codeHealthAnalyzer, enrichmentCoordinator,
         impactAnalyzer, prefetchEngine,
