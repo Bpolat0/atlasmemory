@@ -1223,23 +1223,25 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                     return { content: [{ type: 'text', text: JSON.stringify({ ok: true, path: outputPath, format, readiness: result.readiness.overall }) }] };
                 }
 
-                if (args.stdout === false) {
-                    const written: string[] = [];
-                    for (const file of result.files) {
-                        const dir = path.dirname(file.path);
-                        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-                        fs.writeFileSync(file.path, file.content, 'utf-8');
-                        written.push(file.path);
+                if (args.stdout === true) {
+                    // Only return content without writing (explicit opt-in)
+                    if (result.files.length === 1) {
+                        return { content: [{ type: 'text', text: result.files[0].content }] };
                     }
-                    return { content: [{ type: 'text', text: JSON.stringify({ ok: true, files: written, format, readiness: result.readiness.overall }) }] };
+                    const combined = result.files.map(f => `--- ${path.basename(f.path)} ---\n${f.content}`).join('\n\n');
+                    return { content: [{ type: 'text', text: combined }] };
                 }
 
-                // Return content (default)
-                if (result.files.length === 1) {
-                    return { content: [{ type: 'text', text: result.files[0].content }] };
+                // Default: write files to disk
+                const written: string[] = [];
+                for (const file of result.files) {
+                    const dir = path.dirname(file.path);
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                    fs.writeFileSync(file.path, file.content, 'utf-8');
+                    written.push(file.path);
                 }
-                const combined = result.files.map(f => `--- ${path.basename(f.path)} ---\n${f.content}`).join('\n\n');
-                return { content: [{ type: 'text', text: combined }] };
+                const skippedInfo = result.skipped && result.skipped.length > 0 ? `, skipped: ${result.skipped.map(s => s.path).join(', ')}` : '';
+                return { content: [{ type: 'text', text: JSON.stringify({ ok: true, files: written, format, readiness: result.readiness.overall }) + skippedInfo }] };
             }
 
             case 'ai_readiness': {
