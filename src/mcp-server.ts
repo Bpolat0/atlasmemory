@@ -191,6 +191,17 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
     // Auto-index guard: ensure DB has data and is up-to-date with git
     let indexPromise: Promise<void> | null = null;
     async function ensureIndexed(): Promise<void> {
+        // Auto-detect workspace: if cwd has a local .atlas/atlas.db, switch to it
+        const cwd = process.cwd();
+        const cwdRoot = detectProjectRoot(cwd);
+        if (cwdRoot !== currentProjectRoot && isValidProjectDir(cwdRoot)) {
+            const localDb = path.join(cwdRoot, '.atlas', 'atlas.db');
+            if (fs.existsSync(localDb)) {
+                switchToProject(cwdRoot);
+                process.stderr.write(`[atlasmemory] Auto-switched to workspace: ${cwdRoot}\n`);
+            }
+        }
+
         if (indexPromise) { await indexPromise; return; }
 
         const empty = isDbEmpty(store);
