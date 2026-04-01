@@ -14,6 +14,7 @@ import { autoIndex, isDbEmpty, detectProjectRoot, incrementalReindex, getGitHead
 import { VERSION, NAME } from './version.js';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 export interface McpServerOptions {
     dbPath?: string;
@@ -26,6 +27,8 @@ function isValidProjectDir(dir: string): boolean {
     if (lower === '/' || lower === 'c:/' || lower === 'c:\\') return false;
     const home = (process.env.HOME || process.env.USERPROFILE || '').toLowerCase().replace(/\\/g, '/');
     if (lower === home) return false;
+    // Reject the old fallback location that caused cross-project pollution
+    if (lower.endsWith('.atlasmemory') || lower.endsWith('/.atlasmemory')) return false;
     // Must have .git or package.json to be a valid project
     return fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, 'package.json'));
 }
@@ -34,9 +37,10 @@ function resolveProjectRoot(): string {
     const cwd = process.cwd();
     const detected = detectProjectRoot(cwd);
     if (isValidProjectDir(detected)) return detected;
-    // No valid project found — use a safe temp location for DB only (no auto-index)
-    const home = process.env.HOME || process.env.USERPROFILE || '.';
-    return path.join(home, '.atlasmemory');
+    // No valid project found — use an ephemeral temp dir (never accumulates data across projects)
+    const tmpFallback = path.join(os.tmpdir(), 'atlasmemory-orphan');
+    if (!fs.existsSync(tmpFallback)) fs.mkdirSync(tmpFallback, { recursive: true });
+    return tmpFallback;
 }
 
 function initStore(dbPath?: string, projectRoot?: string): Store {
@@ -190,7 +194,16 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
 
     // Auto-index guard: ensure DB has data and is up-to-date with git
     let indexPromise: Promise<void> | null = null;
-    async function ensureIndexed(): Promise<void> {
+    async function ensureIndexed(requestedPath?: string): Promise<void> {
+        // If caller provided an explicit project path, try switching to it first
+        if (requestedPath) {
+            const reqRoot = detectProjectRoot(requestedPath);
+            if (reqRoot !== currentProjectRoot && (isValidProjectDir(reqRoot) || fs.existsSync(path.join(reqRoot, '.atlas', 'atlas.db')))) {
+                switchToProject(reqRoot);
+                process.stderr.write(`[atlasmemory] Switched to requested project: ${reqRoot}\n`);
+            }
+        }
+
         // Auto-detect workspace: if cwd has a local .atlas/atlas.db, switch to it
         const cwd = process.cwd();
         const cwdRoot = detectProjectRoot(cwd);
@@ -200,6 +213,11 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 switchToProject(cwdRoot);
                 process.stderr.write(`[atlasmemory] Auto-switched to workspace: ${cwdRoot}\n`);
             }
+        }
+
+        // Safety: warn if still on orphan/fallback DB (no real project bound)
+        if (currentProjectRoot.includes('atlasmemory-orphan')) {
+            process.stderr.write(`[atlasmemory] WARNING: No project detected. Use index_repo(path) or handshake(project_path) to bind to a project.\n`);
         }
 
         if (indexPromise) { await indexPromise; return; }
@@ -502,11 +520,12 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             },
             {
                 name: 'handshake',
-                description: 'Initialize agent session — returns 3-layer context: Perception (project brief) + Long-Term Memory + Protocol. Auto-indexes on first use.',
+                description: 'Initialize agent session — returns 3-layer context: Perception (project brief) + Long-Term Memory + Protocol. Auto-indexes on first use. Pass project_path to bind to a specific workspace.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         session_id: { type: 'string', description: 'Current session ID for session change detection' },
+                        project_path: { type: 'string', description: 'Absolute path to the project workspace (auto-detected from cwd if omitted)' },
                         include_brief: { type: 'boolean', description: 'Include Living Project Brief (default: true)', default: true },
                         include_memory: { type: 'boolean', description: 'Include project memories (default: true)', default: true },
                     },
@@ -1133,7 +1152,8 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             }
 
             case 'handshake': {
-                await ensureIndexed();
+                const handshakePath = args.project_path ? path.resolve(String(args.project_path)) : undefined;
+                await ensureIndexed(handshakePath);
                 await ensureReverseRefs();
 
                 // One-time migration from SESSION_HANDOFF.md
