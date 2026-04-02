@@ -19,7 +19,7 @@ export class ClaudeCliBackend implements EnrichmentBackend {
         // Pass prompt via stdin (-p - reads from stdin) to avoid
         // shell escaping issues and OS argument length limits
         return new Promise<string>((resolve, reject) => {
-            const args = ['-p', '-', '--output-format', 'text', '--max-tokens', String(maxTokens)];
+            const args = ['-p', '-', '--output-format', 'text'];
             const child = spawn('claude', args, {
                 timeout: 90000,
                 stdio: ['pipe', 'pipe', 'pipe'],
