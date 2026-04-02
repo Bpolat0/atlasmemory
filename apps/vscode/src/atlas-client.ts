@@ -95,14 +95,16 @@ export class AtlasClient {
             let cmd: string;
             let cmdArgs: string[];
 
+            const isWindows = process.platform === 'win32';
             if (binary === 'npx:atlasmemory') {
-                cmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+                cmd = isWindows ? 'npx.cmd' : 'npx';
                 cmdArgs = ['-y', 'atlasmemory', ...args];
             } else if (binary.endsWith('.js')) {
-                cmd = NODE_BINARY;
-                cmdArgs = [binary, ...args];
+                // Quote paths with spaces for Windows shell execution
+                cmd = isWindows ? `"${NODE_BINARY}"` : NODE_BINARY;
+                cmdArgs = [isWindows ? `"${binary}"` : binary, ...args];
             } else {
-                cmd = binary;
+                cmd = isWindows ? `"${binary}"` : binary;
                 cmdArgs = args;
             }
 
@@ -110,7 +112,7 @@ export class AtlasClient {
                 cwd: this.workspaceRoot,
                 timeout: 60000,
                 env: { ...process.env, FORCE_COLOR: '0' },
-                shell: process.platform === 'win32',
+                shell: isWindows,
             }, (error, stdout, stderr) => {
                 if (error) {
                     reject(new Error(stderr || error.message));
