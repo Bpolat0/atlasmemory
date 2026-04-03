@@ -56,10 +56,22 @@ memory.md
 docs/plans/
 docs/superpowers/
 
+# Draft / personal files (never commit)
+reddit-post-*.md
+*-draft.md
+*-readme-profile*.md
+github-profile-readme.md
+AGENT-SELFTEST-REPORT.md
+scratch.*
+notes.*
+TODO.md
+
 # Claude Code / AI tool configs (personal)
 .claude/
 .mcp.json
 .cursorrules
+.windsurfrules
+.agents/
 
 # Debug scripts
 apps/eval/debug-fts.js
@@ -80,3 +92,12 @@ coverage/
 out/
 build/
 .gemini/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc temp
+*.tmp
+*.bak
+*.orig
