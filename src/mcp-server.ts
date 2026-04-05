@@ -148,7 +148,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         const already = store.getState('organic_memory_migrated');
         if (already) return;
 
-        const handoffPath = path.join(detectProjectRoot(process.cwd()), 'SESSION_HANDOFF.md');
+        const handoffPath = path.join(currentProjectRoot, 'SESSION_HANDOFF.md');
         if (!fs.existsSync(handoffPath)) {
             store.setState('organic_memory_migrated', 'true');
             return;
@@ -227,10 +227,10 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             // First run: full index — but only if we're in a valid project directory
             indexPromise = (async () => {
                 try {
-                    const rootDir = detectProjectRoot(process.cwd());
+                    const rootDir = currentProjectRoot;
                     if (!isValidProjectDir(rootDir)) {
                         process.stderr.write(
-                            `[atlasmemory] No project detected in ${process.cwd()}. Use index_repo(path) to index a specific project.\n`
+                            `[atlasmemory] No project detected in ${rootDir}. Use index_repo(path) to index a specific project.\n`
                         );
                         indexPromise = null;
                         return;
@@ -251,7 +251,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
         }
 
         // Incremental: check if git HEAD changed since last index
-        const rootDir = detectProjectRoot(process.cwd());
+        const rootDir = currentProjectRoot;
         const currentHead = getGitHead(rootDir);
         if (!currentHead) return; // Not a git repo, skip staleness check
 
@@ -1179,7 +1179,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
                 const includeBrief = args.include_brief !== false;
                 if (includeBrief) {
                     await ensureCodeHealth();
-                    const rootDir = detectProjectRoot(process.cwd());
+                    const rootDir = currentProjectRoot;
                     const { markdown } = projectBriefBuilder.buildBrief({ rootDir, maxTokens: budgets.perception });
                     sections.push(markdown);
                 }
@@ -1243,7 +1243,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             case 'generate_claude_md': {
                 await ensureIndexed();
                 const { generateAll } = await import('./generate-claude-md.js');
-                const rootDir = (await import('./auto-index.js')).detectProjectRoot(process.cwd());
+                const rootDir = currentProjectRoot;
                 const format = (['claude', 'cursor', 'copilot', 'windsurf', 'antigravity', 'all'].includes(String(args.format)) ? args.format : 'claude') as string;
                 const force = args.force === true;
                 const result = generateAll(store, { rootDir, format: format as any, force });
