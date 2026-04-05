@@ -59,6 +59,7 @@ function initStore(dbPath?: string, projectRoot?: string): Store {
 
 export async function startMcpServer(options: McpServerOptions = {}): Promise<void> {
     let currentProjectRoot = resolveProjectRoot();
+    let explicitProjectBound = false; // true once user binds via project_path — disables cwd auto-detect
     let store = initStore(options.dbPath, currentProjectRoot);
     let searchService = new SearchService(store);
     let taskPackBuilder = new TaskPackBuilder(store);
@@ -195,23 +196,26 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
     // Auto-index guard: ensure DB has data and is up-to-date with git
     let indexPromise: Promise<void> | null = null;
     async function ensureIndexed(requestedPath?: string): Promise<void> {
-        // If caller provided an explicit project path, try switching to it first
+        // If caller provided an explicit project path, bind to it and lock session to that project
         if (requestedPath) {
             const reqRoot = detectProjectRoot(requestedPath);
             if (reqRoot !== currentProjectRoot && (isValidProjectDir(reqRoot) || fs.existsSync(path.join(reqRoot, '.atlas', 'atlas.db')))) {
                 switchToProject(reqRoot);
                 process.stderr.write(`[atlasmemory] Switched to requested project: ${reqRoot}\n`);
             }
+            explicitProjectBound = true; // lock: cwd auto-detect won't override this
         }
 
-        // Auto-detect workspace: if cwd has a local .atlas/atlas.db, switch to it
-        const cwd = process.cwd();
-        const cwdRoot = detectProjectRoot(cwd);
-        if (cwdRoot !== currentProjectRoot && isValidProjectDir(cwdRoot)) {
-            const localDb = path.join(cwdRoot, '.atlas', 'atlas.db');
-            if (fs.existsSync(localDb)) {
-                switchToProject(cwdRoot);
-                process.stderr.write(`[atlasmemory] Auto-switched to workspace: ${cwdRoot}\n`);
+        // Auto-detect workspace from cwd — only if user hasn't explicitly bound a project
+        if (!explicitProjectBound) {
+            const cwd = process.cwd();
+            const cwdRoot = detectProjectRoot(cwd);
+            if (cwdRoot !== currentProjectRoot && isValidProjectDir(cwdRoot)) {
+                const localDb = path.join(cwdRoot, '.atlas', 'atlas.db');
+                if (fs.existsSync(localDb)) {
+                    switchToProject(cwdRoot);
+                    process.stderr.write(`[atlasmemory] Auto-switched to workspace: ${cwdRoot}\n`);
+                }
             }
         }
 
@@ -767,6 +771,7 @@ export async function startMcpServer(options: McpServerOptions = {}): Promise<vo
             case 'index_repo': {
                 const repoPath = String(args.path || currentProjectRoot);
                 switchToProject(repoPath);
+                if (args.path) explicitProjectBound = true; // explicit path → lock session
                 const result = await autoIndex(store, repoPath);
                 reverseRefsBuilt = false;
                 codeHealthAnalyzed = false;

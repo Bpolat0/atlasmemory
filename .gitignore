@@ -101,3 +101,10 @@ npm-debug.log*
 *.tmp
 *.bak
 *.orig
+
+# One-off test/debug output files
+err.txt
+test-*.txt
+debug-*.txt
+test-*.mjs
+debug-*.mjs
